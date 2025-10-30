@@ -1,0 +1,267 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// NextAuth tables
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// App tables
+model User {
+  id            String      @id @default(cuid())
+  email         String      @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  role          UserRole    @default(MERCHANT)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  workspaces    Workspace[]
+  suggestions   Suggestion[] @relation("ReviewedSuggestions")
+  changeLogs    ChangeLog[]
+
+  @@index([email])
+}
+
+enum UserRole {
+  ADMIN
+  AGENCY
+  MERCHANT
+}
+
+model Workspace {
+  id                   String    @id @default(cuid())
+  name                 String
+  platform             Platform  @default(SHOPIFY)
+  shopDomain           String?
+  shopAccessToken      String?   // encrypted in production
+  ownerId              String
+  autoApplyLowRisk     Boolean   @default(false)
+  allowTitleOverwrite  Boolean   @default(false)
+  allowDescOverwrite   Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  owner         User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  products      Product[]
+  suggestions   Suggestion[]
+  orderEvents   OrderEvent[]
+  changeLogs    ChangeLog[]
+  jobs          Job[]
+
+  @@index([ownerId])
+  @@index([shopDomain])
+}
+
+enum Platform {
+  SHOPIFY
+  ETSY
+  CSV
+}
+
+model Product {
+  id                     String   @id @default(cuid())
+  workspaceId            String
+  sourceId               String   // Shopify product ID
+  title                  String
+  description            String?  @db.Text
+  price                  Decimal? @db.Decimal(10, 2)
+  currency               String   @default("USD")
+  inventory              Int      @default(0)
+  tags                   Json?    // string[]
+  vendor                 String?
+  productType            String?
+  images                 Json?    // array of image URLs
+  isPrimarySeller        Boolean  @default(false)
+  instantCheckoutEnabled Boolean  @default(false)
+  contentHash            String?  // SHA256 of title+description+tags+price+inventory
+  rawSource              Json?    // full Shopify product object
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  auditResults   AuditResult[]
+  suggestions    Suggestion[]
+  changeLogs     ChangeLog[]
+
+  @@unique([workspaceId, sourceId])
+  @@index([workspaceId])
+  @@index([contentHash])
+}
+
+model AuditResult {
+  id         String   @id @default(cuid())
+  productId  String
+  seoScore   Int      @default(0) // 0-100
+  issues     Json?    // array of {issue_type, severity, message}
+  createdAt  DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([createdAt])
+}
+
+model Suggestion {
+  id          String         @id @default(cuid())
+  workspaceId String
+  productId   String
+  issueType   String         // "missing_audience", "instant_checkout_off", etc.
+  aiPayload   Json           // proposed change
+  riskLevel   RiskLevel
+  status      SuggestionStatus @default(PENDING)
+  reviewerId  String?
+  errorMsg    String?        @db.Text
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  appliedAt   DateTime?
+
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  reviewer    User?       @relation("ReviewedSuggestions", fields: [reviewerId], references: [id])
+  changeLogs  ChangeLog[]
+
+  @@index([workspaceId, status])
+  @@index([productId])
+  @@index([status])
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum SuggestionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  APPLIED
+}
+
+model OrderEvent {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  orderId       String   // Shopify order ID
+  amount        Decimal  @db.Decimal(10, 2)
+  currency      String   @default("USD")
+  sourceChannel SourceChannel @default(WEB)
+  rawPayload    Json?
+  createdAt     DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, orderId])
+  @@index([workspaceId, sourceChannel])
+  @@index([createdAt])
+}
+
+enum SourceChannel {
+  CHATGPT_AGENTIC
+  WEB
+  POS
+  OTHER
+}
+
+model ChangeLog {
+  id           String      @id @default(cuid())
+  workspaceId  String
+  productId    String
+  suggestionId String?
+  changeType   String      // "update_description", "enable_instant_checkout", etc.
+  oldValue     Json?
+  newValue     Json?
+  actorType    ActorType   @default(USER)
+  actorId      String?
+  createdAt    DateTime    @default(now())
+
+  workspace  Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  suggestion Suggestion? @relation(fields: [suggestionId], references: [id])
+  actor      User?       @relation(fields: [actorId], references: [id])
+
+  @@index([workspaceId])
+  @@index([productId])
+  @@index([createdAt])
+}
+
+enum ActorType {
+  USER
+  SYSTEM
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  workspaceId String
+  type        JobType
+  status      JobStatus @default(PENDING)
+  progress    Int       @default(0) // 0-100
+  totalItems  Int       @default(0)
+  processedItems Int    @default(0)
+  result      Json?     // success/error data
+  error       String?   @db.Text
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([status])
+}
+
+enum JobType {
+  PRODUCT_SYNC
+  AUDIT_RUN
+  APPLY_SUGGESTIONS
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
