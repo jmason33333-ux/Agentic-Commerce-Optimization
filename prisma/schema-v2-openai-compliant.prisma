@@ -1,0 +1,174 @@
+// Updated Prisma schema with full OpenAI Commerce Feed compliance
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// [Keep existing NextAuth tables: Account, Session, VerificationToken, User unchanged]
+
+model Workspace {
+  id                   String    @id @default(cuid())
+  name                 String
+  platform             Platform  @default(SHOPIFY)
+  shopDomain           String?
+  shopAccessToken      String?
+  ownerId              String
+
+  // Policy settings
+  autoApplyLowRisk     Boolean   @default(false)
+  allowTitleOverwrite  Boolean   @default(false)
+  allowDescOverwrite   Boolean   @default(false)
+
+  // Merchant info (OpenAI spec required)
+  sellerName           String?
+  sellerUrl            String?
+  sellerPrivacyPolicy  String?
+  sellerTos            String?
+  returnPolicy         String?
+  returnWindow         Int?      // days
+
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  owner         User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  products      Product[]
+  suggestions   Suggestion[]
+  orderEvents   OrderEvent[]
+  changeLogs    ChangeLog[]
+  jobs          Job[]
+
+  @@index([ownerId])
+  @@index([shopDomain])
+}
+
+model Product {
+  id                     String   @id @default(cuid())
+  workspaceId            String
+  sourceId               String   // Shopify product ID
+
+  // OpenAI Flags (REQUIRED)
+  enableSearch           Boolean  @default(true)
+  enableCheckout         Boolean  @default(false)
+
+  // Basic Product Data (REQUIRED)
+  title                  String
+  description            String?  @db.Text
+  link                   String?  // Product page URL
+  gtin                   String?  // GTIN/UPC/ISBN (required if mpn missing)
+  mpn                    String?  // Manufacturer part number (required if gtin missing)
+
+  // Item Information
+  condition              String   @default("new") // new, refurbished, used
+  productCategory        String?  // Category path with ">" separator
+  brand                  String?  // REQUIRED (except movies/books)
+  material               String?
+  dimensions             String?  // LxWxH with units
+  length                 Decimal? @db.Decimal(10, 2)
+  lengthUnit             String?
+  width                  Decimal? @db.Decimal(10, 2)
+  widthUnit              String?
+  height                 Decimal? @db.Decimal(10, 2)
+  heightUnit             String?
+  weight                 Decimal? @db.Decimal(10, 2) // REQUIRED
+  weightUnit             String?  // REQUIRED with weight
+  ageGroup               String?  // newborn, infant, toddler, kids, adult
+
+  // Media (REQUIRED: at least image_link)
+  imageLink              String?  // Primary image
+  additionalImageLinks   Json?    // Array of additional images
+  videoLink              String?
+  model3dLink            String?
+
+  // Price & Promotions (REQUIRED: price)
+  price                  Decimal? @db.Decimal(10, 2)
+  currency               String   @default("USD")
+  salePrice              Decimal? @db.Decimal(10, 2)
+  salePriceStart         DateTime?
+  salePriceEnd           DateTime?
+  unitPricingMeasure     String?
+  unitPricingBaseMeasure String?
+  pricingTrend           String?
+
+  // Availability & Inventory (REQUIRED: availability)
+  availability           String   @default("in_stock") // in_stock, out_of_stock, preorder
+  availabilityDate       DateTime?
+  inventoryQuantity      Int      @default(0)
+  expirationDate         DateTime?
+  pickupMethod           String?  // in_store, reserve, not_supported
+  pickupSla              String?
+
+  // Variants
+  itemGroupId            String?  // REQUIRED if variants exist
+  itemGroupTitle         String?
+  color                  String?
+  size                   String?
+  sizeSystem             String?  // ISO 3166 country code
+  gender                 String?  // male, female, unisex
+  offerId                String?
+  customVariant1Category String?
+  customVariant1Option   String?
+  customVariant2Category String?
+  customVariant2Option   String?
+  customVariant3Category String?
+  customVariant3Option   String?
+
+  // Fulfillment
+  shipping               Json?    // Array of shipping options
+  deliveryEstimate       DateTime?
+
+  // Performance Signals
+  popularityScore        Decimal? @db.Decimal(3, 2)
+  returnRate             Decimal? @db.Decimal(5, 2)
+
+  // Compliance
+  warning                String?
+  warningUrl             String?
+  ageRestriction         Int?
+
+  // Reviews & Q&A
+  productReviewCount     Int?
+  productReviewRating    Decimal? @db.Decimal(3, 2)
+  storeReviewCount       Int?
+  storeReviewRating      Decimal? @db.Decimal(3, 2)
+  qAndA                  String?  @db.Text
+  rawReviewData          Json?
+
+  // Related Products
+  relatedProductIds      Json?    // Array of product IDs
+  relationshipType       String?  // part_of_set, often_bought_with, substitute, etc.
+
+  // Geo Tagging
+  geoPrice               Json?    // Region-specific pricing
+  geoAvailability        Json?    // Region-specific availability
+
+  // Legacy/compatibility
+  vendor                 String?
+  productType            String?
+  tags                   Json?
+  images                 Json?    // Deprecated - use imageLink + additionalImageLinks
+
+  // Internal
+  contentHash            String?
+  rawSource              Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  auditResults   AuditResult[]
+  suggestions    Suggestion[]
+  changeLogs     ChangeLog[]
+
+  @@unique([workspaceId, sourceId])
+  @@index([workspaceId])
+  @@index([contentHash])
+  @@index([enableSearch])
+  @@index([enableCheckout])
+  @@index([availability])
+}
+
+// [Keep existing AuditResult, Suggestion, OrderEvent, ChangeLog, Job models]
