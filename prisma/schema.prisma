@@ -1,5 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// OpenAI Commerce Feed Specification-compliant schema
+// Based on: https://developers.openai.com/commerce/specs/feed
 
 generator client {
   provider = "prisma-client-js"
@@ -77,11 +77,23 @@ model Workspace {
   name                 String
   platform             Platform  @default(SHOPIFY)
   shopDomain           String?
-  shopAccessToken      String?   // encrypted in production
-  ownerId              String
+  shopAccessToken      String?
+
+  // Policy settings
   autoApplyLowRisk     Boolean   @default(false)
   allowTitleOverwrite  Boolean   @default(false)
   allowDescOverwrite   Boolean   @default(false)
+
+  // OpenAI Spec: Merchant Info (REQUIRED)
+  sellerName           String?
+  sellerUrl            String?
+  sellerPrivacyPolicy  String?   // Required if checkout enabled
+  sellerTos            String?   // Required if checkout enabled
+
+  // OpenAI Spec: Returns (REQUIRED)
+  returnPolicy         String?
+  returnWindow         Int?      // days
+
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -106,19 +118,112 @@ model Product {
   id                     String   @id @default(cuid())
   workspaceId            String
   sourceId               String   // Shopify product ID
-  title                  String
-  description            String?  @db.Text
-  price                  Decimal? @db.Decimal(10, 2)
+
+  // ===== OpenAI Flags (REQUIRED) =====
+  enableSearch           Boolean  @default(true)
+  enableCheckout         Boolean  @default(false)
+
+  // ===== Basic Product Data (REQUIRED) =====
+  title                  String   // Max 150 chars
+  description            String?  @db.Text // Max 5000 chars
+  link                   String?  // Product page URL (REQUIRED)
+  gtin                   String?  // GTIN/UPC/ISBN 8-14 digits (required if mpn missing)
+  mpn                    String?  // Manufacturer part number (required if gtin missing)
+
+  // ===== Item Information =====
+  condition              String   @default("new") // new|refurbished|used (required if not new)
+  productCategory        String?  // REQUIRED - category path with ">" separator
+  brand                  String?  // REQUIRED (max 70 chars) except movies/books/music
+  material               String?  // REQUIRED (max 100 chars)
+  dimensions             String?  // LxWxH with units
+  length                 Decimal? @db.Decimal(10, 2)
+  lengthUnit             String?
+  width                  Decimal? @db.Decimal(10, 2)
+  widthUnit              String?
+  height                 Decimal? @db.Decimal(10, 2)
+  heightUnit             String?
+  weight                 Decimal? @db.Decimal(10, 2) // REQUIRED
+  weightUnit             String?  // REQUIRED with weight
+  ageGroup               String?  // newborn|infant|toddler|kids|adult
+
+  // ===== Media (REQUIRED: at least image_link) =====
+  imageLink              String?  // Primary image (REQUIRED)
+  additionalImageLinks   Json?    // Array of additional images
+  videoLink              String?
+  model3dLink            String?  // GLB/GLTF preferred
+
+  // ===== Price & Promotions (REQUIRED: price) =====
+  price                  Decimal? @db.Decimal(10, 2) // REQUIRED
   currency               String   @default("USD")
-  inventory              Int      @default(0)
-  tags                   Json?    // string[]
-  vendor                 String?
-  productType            String?
-  images                 Json?    // array of image URLs
-  isPrimarySeller        Boolean  @default(false)
-  instantCheckoutEnabled Boolean  @default(false)
-  contentHash            String?  // SHA256 of title+description+tags+price+inventory
-  rawSource              Json?    // full Shopify product object
+  salePrice              Decimal? @db.Decimal(10, 2)
+  salePriceStart         DateTime?
+  salePriceEnd           DateTime?
+  unitPricingMeasure     String?
+  unitPricingBaseMeasure String?
+  pricingTrend           String?  // e.g., "Lowest price in 6 months"
+
+  // ===== Availability & Inventory (REQUIRED) =====
+  availability           String   @default("in_stock") // in_stock|out_of_stock|preorder (REQUIRED)
+  availabilityDate       DateTime? // Required if availability=preorder
+  inventoryQuantity      Int      @default(0) // REQUIRED
+  expirationDate         DateTime?
+  pickupMethod           String?  // in_store|reserve|not_supported
+  pickupSla              String?
+
+  // ===== Variants (REQUIRED if variants exist) =====
+  itemGroupId            String?  // Same for all variants (REQUIRED if has variants)
+  itemGroupTitle         String?
+  color                  String?  // Recommended for apparel (max 40 chars)
+  size                   String?  // Recommended for apparel (max 20 chars)
+  sizeSystem             String?  // ISO 3166 country code
+  gender                 String?  // male|female|unisex
+  offerId                String?
+  customVariant1Category String?
+  customVariant1Option   String?
+  customVariant2Category String?
+  customVariant2Option   String?
+  customVariant3Category String?
+  customVariant3Option   String?
+
+  // ===== Fulfillment =====
+  shipping               Json?    // Array of shipping options
+  deliveryEstimate       DateTime?
+
+  // ===== Performance Signals (RECOMMENDED) =====
+  popularityScore        Decimal? @db.Decimal(3, 2) // 0-5 scale
+  returnRate             Decimal? @db.Decimal(5, 2) // 0-100%
+
+  // ===== Compliance =====
+  warning                String?
+  warningUrl             String?
+  ageRestriction         Int?
+
+  // ===== Reviews & Q&A (RECOMMENDED) =====
+  productReviewCount     Int?
+  productReviewRating    Decimal? @db.Decimal(3, 2) // 0-5 scale
+  storeReviewCount       Int?
+  storeReviewRating      Decimal? @db.Decimal(3, 2)
+  qAndA                  String?  @db.Text
+  rawReviewData          Json?
+
+  // ===== Related Products (RECOMMENDED) =====
+  relatedProductIds      Json?    // Array of product IDs
+  relationshipType       String?  // part_of_set|often_bought_with|substitute|etc.
+
+  // ===== Geo Tagging =====
+  geoPrice               Json?    // Region-specific pricing
+  geoAvailability        Json?    // Region-specific availability
+
+  // ===== Legacy/Compatibility Fields =====
+  vendor                 String?  // Legacy - use brand instead
+  productType            String?  // Legacy - use productCategory instead
+  tags                   Json?    // Legacy - supplementary tags
+  images                 Json?    // Legacy - use imageLink + additionalImageLinks
+  isPrimarySeller        Boolean  @default(false) // Legacy
+
+  // ===== Internal Fields =====
+  contentHash            String?  // SHA256 for change detection
+  rawSource              Json?    // Full Shopify product object
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
@@ -130,13 +235,17 @@ model Product {
   @@unique([workspaceId, sourceId])
   @@index([workspaceId])
   @@index([contentHash])
+  @@index([enableSearch])
+  @@index([enableCheckout])
+  @@index([availability])
+  @@index([itemGroupId])
 }
 
 model AuditResult {
   id         String   @id @default(cuid())
   productId  String
   seoScore   Int      @default(0) // 0-100
-  issues     Json?    // array of {issue_type, severity, message}
+  issues     Json?    // array of {issue_type, severity, message, spec_ref}
   createdAt  DateTime @default(now())
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -149,7 +258,7 @@ model Suggestion {
   id          String         @id @default(cuid())
   workspaceId String
   productId   String
-  issueType   String         // "missing_audience", "instant_checkout_off", etc.
+  issueType   String         // e.g., "missing_gtin", "checkout_disabled", etc.
   aiPayload   Json           // proposed change
   riskLevel   RiskLevel
   status      SuggestionStatus @default(PENDING)
