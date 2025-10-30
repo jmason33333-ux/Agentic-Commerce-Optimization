@@ -5,6 +5,7 @@ import { auditRouter } from "./audit";
 import { suggestionRouter } from "./suggestion";
 import { analyticsRouter } from "./analytics";
 import { jobRouter } from "./job";
+import { csvRouter } from "./csv";
 
 export const appRouter = router({
   workspace: workspaceRouter,
@@ -13,6 +14,7 @@ export const appRouter = router({
   suggestion: suggestionRouter,
   analytics: analyticsRouter,
   job: jobRouter,
+  csv: csvRouter,
 });
 
 export type AppRouter = typeof appRouter;
