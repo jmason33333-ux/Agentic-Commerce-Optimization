@@ -14,6 +14,7 @@ export const suggestionRouter = router({
         status: z.nativeEnum(SuggestionStatus).optional(),
         riskLevel: z.nativeEnum(RiskLevel).optional(),
         productId: z.string().optional(),
+        issueTypes: z.array(z.string()).optional(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -32,6 +33,8 @@ export const suggestionRouter = router({
       if (input.status) where.status = input.status;
       if (input.riskLevel) where.riskLevel = input.riskLevel;
       if (input.productId) where.productId = input.productId;
+      if (input.issueTypes && input.issueTypes.length > 0)
+        where.issueType = { in: input.issueTypes };
 
       return ctx.db.suggestion.findMany({
         where,
@@ -54,6 +57,50 @@ export const suggestionRouter = router({
         },
         orderBy: { createdAt: "desc" },
       });
+    }),
+
+  getSummary: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        status: z.nativeEnum(SuggestionStatus).optional().default(SuggestionStatus.PENDING),
+        issueTypes: z.array(z.string()).optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const workspace = await ctx.db.workspace.findUnique({
+        where: { id: input.workspaceId },
+      });
+
+      if (!workspace || workspace.ownerId !== ctx.session.user.id) {
+        throw new Error("Workspace not found");
+      }
+
+      const baseWhere: any = {
+        workspaceId: input.workspaceId,
+        status: input.status,
+      };
+      if (input.issueTypes && input.issueTypes.length > 0) {
+        baseWhere.issueType = { in: input.issueTypes };
+      }
+
+      const [byRisk, byIssue] = await Promise.all([
+        ctx.db.suggestion.groupBy({
+          by: ["riskLevel"],
+          where: baseWhere,
+          _count: { _all: true },
+        }),
+        ctx.db.suggestion.groupBy({
+          by: ["issueType"],
+          where: baseWhere,
+          _count: { _all: true },
+        }),
+      ]);
+
+      return {
+        countsByRisk: byRisk.map((r) => ({ riskLevel: r.riskLevel, count: r._count._all })),
+        countsByIssueType: byIssue.map((i) => ({ issueType: i.issueType, count: i._count._all })),
+      };
     }),
 
   approve: protectedProcedure
@@ -131,6 +178,47 @@ export const suggestionRouter = router({
           updatedAt: new Date(),
         },
       });
+    }),
+
+  bulkApproveByFilter: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        status: z.nativeEnum(SuggestionStatus).optional().default(SuggestionStatus.PENDING),
+        riskLevels: z.array(z.nativeEnum(RiskLevel)).optional(),
+        issueTypes: z.array(z.string()).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const workspace = await ctx.db.workspace.findUnique({
+        where: { id: input.workspaceId },
+      });
+
+      if (!workspace || workspace.ownerId !== ctx.session.user.id) {
+        throw new Error("Workspace not found");
+      }
+
+      const where: any = {
+        workspaceId: input.workspaceId,
+        status: input.status,
+      };
+      if (input.riskLevels && input.riskLevels.length > 0) {
+        where.riskLevel = { in: input.riskLevels };
+      }
+      if (input.issueTypes && input.issueTypes.length > 0) {
+        where.issueType = { in: input.issueTypes };
+      }
+
+      const res = await ctx.db.suggestion.updateMany({
+        where,
+        data: {
+          status: SuggestionStatus.APPROVED,
+          reviewerId: ctx.session.user.id,
+          updatedAt: new Date(),
+        },
+      });
+
+      return { updated: res.count };
     }),
 
   apply: protectedProcedure

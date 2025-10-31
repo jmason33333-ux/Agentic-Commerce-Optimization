@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
-export default async function DashboardLayout({
+export default async function AuthenticatedLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -24,3 +24,5 @@ export default async function DashboardLayout({
     </div>
   );
 }
+
+
