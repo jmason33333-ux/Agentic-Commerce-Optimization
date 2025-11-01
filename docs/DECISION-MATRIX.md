@@ -82,7 +82,12 @@ Other: ___%
 - [ ] GTIN/MPN
 - [ ] Other: _______________
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED**
+- **"ready"**: Compliance ≥ **8** AND no pending suggestions
+- **"pending"**: Has pending suggestions (regardless of compliance)
+- **"missing"**: Compliance < **5** OR critical fields missing (Title, Price, Image, Availability)
+
+**Rationale**: 8/10 threshold matches 80% quality standard. Pending suggestions prioritized to encourage merchant action. Critical fields cover minimum viable product listing.
 
 ---
 
@@ -116,7 +121,15 @@ Other: ___%
 
 **Example**: If compliance=9 but has pending suggestions, is it "ready" or "pending"?
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED**
+**Priority Order**:
+1. Highest priority: **"pending"** (requires merchant action)
+2. Second: **"missing"** (critical issues blocking readiness)
+3. Lowest: **"ready"** (default when no issues)
+
+**Example**: If compliance=9 but has pending suggestions → status="pending"
+
+**Rationale**: Actionable items (pending) take precedence over passive states. Encourages merchants to clear approval queue first.
 
 ---
 
@@ -190,7 +203,24 @@ Other: ___%
 - missing_weight
 - missing_weight_unit
 
-**Decision**: Create helper function? Y/N
+**Decision**: ✅ **DECIDED - YES, create helper function**
+
+**Mapping Logic**:
+```typescript
+function getChangeType(issueType: string): "title" | "field" | "description" {
+  if (issueType.includes("title")) return "title"
+  if (issueType.includes("description")) return "description"
+  return "field" // default for all other field types
+}
+```
+
+- **"title"** → `missing_title`, any issueType with "title"
+- **"description"** → `missing_description`, any with "description"
+- **"field"** → All others (missing_gtin, missing_brand, missing_price, etc.)
+
+**Location**: `/src/lib/utils.ts`
+
+**Rationale**: Simple pattern matching, easy to extend, single source of truth.
 
 ---
 
@@ -205,7 +235,16 @@ Other: ___%
 - [ ] Confidence threshold
 - [ ] Date range
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED**
+**Supported Filters**:
+- ✅ Priority (high/medium/low)
+- ✅ Issue type
+- ✅ Product ID list
+- ✅ Confidence threshold (>= X%)
+- ❌ Compliance level range (not needed - too complex)
+- ❌ Date range (not needed initially)
+
+**Rationale**: Core filters cover 95% of use cases. Confidence threshold adds safety. Avoid over-engineering.
 
 ---
 
@@ -252,15 +291,20 @@ model ProductView {
 - [ ] **B)** UTM parameters
 - [ ] **C)** Custom tracking parameter (`?source=chatgpt`)
 - [ ] **D)** User agent analysis
-- [ ] **E)** Combination: _______________
+- [X] **E)** Combination: _______________
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option E (Combination)**
+- **Primary**: Referer header (identifies ChatGPT Shopping automatically)
+- **Secondary**: UTM parameters (`?utm_source=chatgpt`)
+- **Fallback**: Mark as "direct" if neither present
 
 **Source Categories**:
-- ChatGPT Shopping: _______________
-- Direct: _______________
-- Search: _______________
-- Other: _______________
+- **ChatGPT Shopping**: Referer contains `chat.openai.com` or `chatgpt.com`
+- **Direct**: No referer + no UTM
+- **Search**: Referer contains google.com, bing.com, etc.
+- **Other**: Everything else
+
+**Rationale**: Referer is automatic (no merchant setup), UTM allows explicit tracking, combination gives best coverage.
 
 ---
 
@@ -296,19 +340,20 @@ model ProductView {
 **Question**: How do we connect to Shopify?
 
 **Options**:
-- [ ] **A)** OAuth 2.0 (App Store app)
+- [X] **A)** OAuth 2.0 (App Store app)
 - [ ] **B)** Private app (API key + secret)
 - [ ] **C)** Custom app (embedded app)
 - [ ] **D)** Manual API key entry
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option A (OAuth 2.0)**
 
 **Required Credentials**:
-- [ ] Store URL
-- [ ] Access Token
-- [ ] API Version
-- [ ] Webhook Secret
-- [ ] Other: _______________
+- ✅ Store URL
+- ✅ Access Token (from OAuth flow)
+- ✅ API Version (2024-10 or latest stable)
+- ❌ Webhook Secret (not needed initially, add when implementing webhooks)
+
+**Rationale**: OAuth is the standard for Shopify apps, enables App Store distribution, better UX than manual keys, more secure. Path to Shopify App Store monetization.
 
 ---
 
@@ -332,18 +377,20 @@ model ProductView {
 **Question**: How do we schedule sync jobs?
 
 **Options**:
-- [ ] **A)** Next.js API route + cron (Vercel Cron)
+- [X] **A)** Next.js API route + cron (Vercel Cron)
 - [ ] **B)** Background worker (BullMQ, Bull, etc.)
 - [ ] **C)** Database-based scheduler
 - [ ] **D)** External service (Upstash QStash, etc.)
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option A (Vercel Cron)**
 
 **Job Types**:
-- [ ] Full catalog sync
-- [ ] Incremental sync (webhooks)
-- [ ] Inventory-only sync
-- [ ] Price-only sync
+- ✅ Full catalog sync (daily)
+- ✅ Incremental sync (every 15 min via webhooks - add later)
+- ❌ Inventory-only sync (use full sync initially)
+- ❌ Price-only sync (use full sync initially)
+
+**Rationale**: Built-in Vercel Cron = zero infrastructure cost, simple setup, sufficient for initial users (<100 stores). Can upgrade to dedicated worker if scale demands it.
 
 ---
 
@@ -353,12 +400,12 @@ model ProductView {
 **Question**: How do we store checkout rules?
 
 **Options**:
-- [ ] **A)** JSON field on Workspace (`checkoutRules: Json`)
+- [X] **A)** JSON field on Workspace (`checkoutRules: Json`)
 - [ ] **B)** Separate table (`CheckoutRule`)
 - [ ] **C)** Hard-coded logic (no config)
 - [ ] **D)** Separate config file
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option A (JSON field)**
 
 **Rule Structure** (if JSON/Table):
 ```typescript
@@ -374,11 +421,13 @@ model ProductView {
 ```
 
 **Default Rules**:
-- Inventory ≥ _____ units
-- Rating ≥ _____ stars
-- Exclude tags: _______________
-- Compliance ≥ _____ level
-- Required fields: _______________
+- Inventory ≥ **5** units
+- Rating ≥ **4.0** stars
+- Exclude tags: **["custom", "preorder", "made-to-order"]**
+- Compliance ≥ **8** level
+- Required fields: **["gtin", "image"]**
+
+**Rationale**: JSON allows flexibility without schema changes, easy defaults, can migrate to separate table later if complexity grows. Simple to update via settings page.
 
 ---
 
@@ -386,17 +435,19 @@ model ProductView {
 **Question**: When do we evaluate checkout rules?
 
 **Options**:
-- [ ] **A)** On product sync
+- [X] **A)** On product sync
 - [ ] **B)** On compliance calculation
 - [ ] **C)** On-demand (when viewing product)
 - [ ] **D)** Background job (periodic check)
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option A (On product sync)**
 
 **Auto-enable Behavior**:
 - [ ] Automatically set `enableCheckout: true` when rules met
-- [ ] Only suggest, require manual approval
+- [X] Only suggest, require manual approval
 - [ ] Log but don't auto-enable
+
+**Rationale**: Evaluate when data changes (sync), but don't auto-enable to avoid merchant surprises. Create suggestions that keep human-in-the-loop while making merchants aware of opportunities.
 
 ---
 
@@ -425,18 +476,20 @@ model ProductView {
 
 **Options**:
 - [ ] **A)** BullMQ (Redis-based)
-- [ ] **B)** Database-based (Prisma + polling)
+- [X] **B)** Database-based (Prisma + polling)
 - [ ] **C)** Vercel/Next.js built-in (if available)
 - [ ] **D)** External service (Upstash, Inngest, etc.)
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option B (Database-based)**
 
 **Job Features Needed**:
-- [ ] Progress tracking (0-100%)
-- [ ] Status updates (pending/running/completed/failed)
-- [ ] Retry logic
-- [ ] Job cancellation
-- [ ] Job history
+- ✅ Progress tracking (0-100%)
+- ✅ Status updates (pending/running/completed/failed)
+- ✅ Retry logic (3 attempts max)
+- ❌ Job cancellation (not needed initially)
+- ✅ Job history (keep last 100 jobs per workspace)
+
+**Rationale**: No Redis dependency = lower cost, simpler deployment, sufficient for <1000 products/workspace. Existing Job model supports most features. Can upgrade to BullMQ later if scale demands it.
 
 ---
 
@@ -463,7 +516,27 @@ model ProductView {
    - [ ] Update all selected products
    - [ ] Background job?
 
-**Decision**: Implementation approach for each?
+**Decision**: ✅ **DECIDED - Implementation for each:**
+
+1. **Optimize Titles**
+   - ✅ Generate suggestions for all selected
+   - ❌ Batch approve automatically
+   - ✅ **Require approval** (HITL)
+
+2. **Fill Missing Fields**
+   - Fields: **gtin, brand, material, weight, weight_unit** (priority fields)
+   - ✅ **Require approval** (HITL)
+
+3. **Enable Checkout**
+   - ✅ Based on smart checkout rules
+   - ✅ **Require approval** (create suggestion, don't auto-enable)
+
+4. **Sync Inventory**
+   - ✅ Trigger Shopify sync
+   - ✅ Update all selected products
+   - ✅ Background job (if >10 products)
+
+**Rationale**: Content changes require approval (HITL), inventory sync is safe to auto-execute.
 
 ---
 
@@ -487,7 +560,17 @@ model ProductView {
 - [ ] Phase 5: Analytics (charts, KPIs)
 - [ ] Phase 6: Settings & Bulk Operations
 
-**Decision**: Confirm or modify?
+**Decision**: ✅ **DECIDED - Confirmed suggested order:**
+
+**Priority Order**:
+1. **Phase 1: Dashboard** (StatCard, PendingActions, ActivityFeed) - Core user entry point
+2. **Phase 2: Products** (ProductsTable, ComplianceIndicator, ProductStatusBadge) - Primary workflow
+3. **Phase 3: Approvals** (ApprovalCard enhancements) - Critical HITL workflow
+4. **Phase 4: Product Detail** (AISuggestionCard, ProductDetailHeader) - Deep dive functionality
+5. **Phase 5: Analytics** (Charts, AnalyticsKpiCard) - Reporting and insights
+6. **Phase 6: Settings & Bulk Operations** (SettingsSidebar, bulk optimize page) - Advanced features
+
+**Rationale**: Prioritizes core user flows first (dashboard → products → approvals), then adds detail views, analytics, and advanced features. Each phase delivers value independently.
 
 ---
 
@@ -498,14 +581,17 @@ model ProductView {
 - [ ] **A)** shadcn/ui (current)
 - [ ] **B)** Copy components from v0 repo as-is
 - [ ] **C)** Rebuild from scratch
-- [ ] **D)** Hybrid (adapt v0 components to shadcn)
+- [X] **D)** Hybrid (adapt v0 components to shadcn)
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option D (Hybrid)**
 
-**Missing shadcn Components**:
-- [ ] Progress (need to add)
-- [ ] Avatar (need to add)
-- [ ] Other: _______________
+**Approach**: Copy v0 custom components (StatCard, ComplianceIndicator, etc.), but use shadcn primitives (Button, Card, Badge) for consistency.
+
+**Missing shadcn Components to Add**:
+- ✅ Progress (need to add)
+- ✅ Avatar (need to add)
+
+**Rationale**: Best of both worlds - leverage v0 design work while maintaining existing component ecosystem. Ensures consistency across app.
 
 ---
 
@@ -520,10 +606,21 @@ model ProductView {
 **Options**:
 - [ ] **A)** Match v0 exactly
 - [ ] **B)** Adapt to current project theme
-- [ ] **C)** Use CSS variables for easy theming
+- [X] **C)** Use CSS variables for easy theming
 - [ ] **D)** Create theme config
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option C (CSS variables)**
+
+**Approach**: Extract v0 color scheme to CSS variables in globals.css:
+```css
+:root {
+  --primary: #8b5cf6; /* v0 violet */
+  --background: #fafaf9; /* v0 warm-bg */
+  /* ... etc */
+}
+```
+
+**Rationale**: Flexible, allows theme customization without code changes, doesn't break existing styles, future-proof for white-label/theming features. Already implemented in merged globals.css.
 
 ---
 
@@ -539,7 +636,14 @@ model ProductView {
 - Update: `product.update` or `product.edit`?
 - Delete: `product.delete` or `product.remove`?
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED**
+- List: **`product.list`**
+- Get by ID: **`product.getById`**
+- Create: **`product.create`**
+- Update: **`product.update`**
+- Delete: **`product.delete`**
+
+**Rationale**: Matches existing patterns in codebase, clear and consistent, follows REST conventions, self-documenting.
 
 ---
 
@@ -547,13 +651,15 @@ model ProductView {
 **Question**: How do we paginate large lists?
 
 **Options**:
-- [ ] **A)** Offset-based (`skip`/`take`)
+- [X] **A)** Offset-based (`skip`/`take`)
 - [ ] **B)** Cursor-based (`cursor`/`limit`)
 - [ ] **C)** Page-based (`page`/`pageSize`)
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option A (Offset-based)**
 
-**Default Page Size**: _____ items
+**Default Page Size**: **50** items
+
+**Rationale**: Simpler to implement, works well with Prisma, sufficient for typical product catalogs (<5000 products), easier for users to understand ("page 2 of 10"). Can add cursor-based later if performance issues arise.
 
 ---
 
@@ -563,14 +669,22 @@ model ProductView {
 **Filter Types**:
 - [ ] Query string parameters
 - [ ] POST body (JSON)
-- [ ] tRPC input object
+- [X] tRPC input object
 
 **Sorting**:
-- [ ] Single field: `sortBy: "name" | "price" | ...`
+- [X] Single field: `sortBy: "name" | "price" | ...`
 - [ ] Multiple fields: `sort: [{ field: "name", order: "asc" }]`
 - [ ] Predefined sorts: `sort: "name_asc" | "price_desc"`
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED**
+- **Filters**: tRPC input object (type-safe Zod schemas)
+- **Sorting**: Single field with direction
+  ```typescript
+  sortBy: "name" | "price" | "compliance" | "createdAt"
+  sortOrder: "asc" | "desc"
+  ```
+
+**Rationale**: Type safety prevents errors, simple enough for frontend, easy to extend. tRPC validates inputs automatically.
 
 ---
 
@@ -583,9 +697,13 @@ model ProductView {
 - [ ] **A)** Calculate compliance for all existing products
 - [ ] **B)** Set default compliance (what value? _____)
 - [ ] **C)** Leave null, calculate on-demand
-- [ ] **D)** Migration script to backfill
+- [X] **D)** Migration script to backfill
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option D (Migration script)**
+
+**Approach**: Run one-time migration script to calculate compliance for all existing products when deploying this update.
+
+**Rationale**: Clean data from day one, avoids null checks throughout app, ensures consistency, provides immediate value to existing users.
 
 ---
 
@@ -595,15 +713,17 @@ model ProductView {
 **Options**:
 - [ ] **A)** Yes, create seed script
 - [ ] **B)** No, use production data
-- [ ] **C)** Conditional (dev only)
+- [X] **C)** Conditional (dev only)
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option C (Conditional, dev only)**
 
 **Seed Data Includes**:
-- [ ] Sample products
-- [ ] Sample suggestions
-- [ ] Sample orders
-- [ ] Sample analytics
+- ✅ 20 sample products (various compliance levels 1-10)
+- ✅ 10 sample suggestions (different priorities/types)
+- ✅ 5 sample orders (for analytics testing)
+- ❌ Sample analytics aggregations (generate on-demand)
+
+**Rationale**: Speeds up development, enables demo environments without real Shopify connection, doesn't affect production. Use NODE_ENV check.
 
 ---
 
@@ -620,14 +740,22 @@ model ProductView {
 - [ ] Other: _______________
 
 **Cache Method**:
-- [ ] **A)** Database (materialized fields)
+- [X] **A)** Database (materialized fields)
 - [ ] **B)** Redis
 - [ ] **C)** Next.js cache (unstable_cache)
 - [ ] **D)** No caching
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option A (Database materialization)**
 
-**Cache TTL**: _____ minutes/hours
+**What to Cache**:
+- ✅ Compliance levels (stored on Product model)
+- ✅ Product statuses (stored on Product model)
+- ✅ Dashboard stats (stored in DailyAnalytics table)
+- ❌ Individual queries (not needed)
+
+**Cache TTL**: Recalculate on product update + daily background job at midnight
+
+**Rationale**: Simple, no external dependencies, Prisma handles invalidation, sufficient performance for target scale (<100k products).
 
 ---
 
@@ -641,7 +769,16 @@ model ProductView {
 - [ ] Query result pagination
 - [ ] Other: _______________
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED**
+
+**Optimizations to Implement**:
+- ✅ **Database indexes** on: `productId`, `workspaceId`, `status`, `complianceLevel`, `createdAt`, `riskLevel`
+- ✅ **Query result pagination** (already using)
+- ✅ **Include related data** in single query (avoid N+1)
+- ❌ DataLoader pattern (overkill for current scale)
+- ❌ Query batching (not needed)
+
+**Rationale**: Indexes give biggest performance boost with minimal effort. Pagination prevents large result sets. Single queries with includes reduce round-trips. DataLoader adds complexity without proportional benefit at current scale.
 
 ---
 
@@ -661,7 +798,20 @@ model ProductView {
 }
 ```
 
-**Decision**: Confirm format?
+**Decision**: ✅ **CONFIRMED - Use tRPC standard error format**
+
+tRPC automatically provides:
+```typescript
+{
+  error: {
+    code: "VALIDATION_ERROR" | "NOT_FOUND" | "UNAUTHORIZED" | "INTERNAL_SERVER_ERROR" | ...,
+    message: string,
+    data?: any // Optional context
+  }
+}
+```
+
+**Rationale**: tRPC handles this automatically, consistent with existing backend, well-documented, works with React Query error handling.
 
 ---
 
@@ -672,9 +822,16 @@ model ProductView {
 - [ ] **A)** tRPC input validation (Zod)
 - [ ] **B)** Database constraints
 - [ ] **C)** Business logic layer
-- [ ] **D)** All of the above
+- [X] **D)** All of the above
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option D (All layers)**
+
+**Validation Strategy**:
+- **tRPC input**: Zod schemas for all API inputs (first line of defense)
+- **Database constraints**: Unique, required, foreign keys, check constraints
+- **Business logic**: Complex rules (e.g., compliance calculation, checkout rules)
+
+**Rationale**: Defense in depth - catch errors early (input validation), ensure data integrity (DB constraints), enforce business rules (logic layer). Each layer serves different purpose.
 
 ---
 
@@ -684,19 +841,21 @@ model ProductView {
 **Question**: How do we handle permissions?
 
 **Options**:
-- [ ] **A)** Workspace-based (all workspace members can access)
+- [X] **A)** Workspace-based (all workspace members can access)
 - [ ] **B)** Role-based (ADMIN, USER, VIEWER)
 - [ ] **C)** Feature flags
 - [ ] **D)** No permissions (single user)
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option A (Workspace-based)**
 
-**Permission Checks**:
-- [ ] View products: _______________
-- [ ] Edit products: _______________
-- [ ] Approve suggestions: _______________
-- [ ] Bulk operations: _______________
-- [ ] Settings: _______________
+**Permission Checks** (all workspace members can):
+- ✅ View products
+- ✅ Edit products
+- ✅ Approve suggestions
+- ✅ Bulk operations
+- ✅ Settings
+
+**Rationale**: Simple for MVP, matches typical SaaS pattern (Slack, Notion), reduces complexity. Can add RBAC (Option B) later if customer requests come in. Most Shopify stores have 1-3 users anyway.
 
 ---
 
@@ -705,16 +864,13 @@ model ProductView {
 
 **Options**:
 - [ ] **A)** Yes, implement rate limiting
-- [ ] **B)** No, not needed
+- [X] **B)** No, not needed
 - [ ] **C)** Per-user limits
 - [ ] **D)** Per-workspace limits
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option B (Not needed initially)**
 
-**Limits**:
-- Requests per minute: _____
-- Requests per hour: _____
-- Bulk operations: _____ per day
+**Rationale**: Focus on core features first, add rate limiting if abuse occurs. Vercel/hosting provides some DDoS protection. tRPC less vulnerable than public REST APIs. Can add later with middleware if needed.
 
 ---
 
@@ -729,7 +885,13 @@ model ProductView {
 - [ ] E2E tests (user flows)
 - [ ] Component tests (React components)
 
-**Decision**: Priority order?
+**Decision**: ✅ **DECIDED - Priority order:**
+1. **Integration tests** (API endpoints) - Highest ROI, catch most bugs
+2. **Unit tests** (business logic) - Compliance calculation, status derivation
+3. **Component tests** (Critical components) - ComplianceIndicator, StatCard
+4. **E2E tests** (Skip initially) - Add for critical flows later, expensive to maintain
+
+**Rationale**: Integration tests catch most bugs, unit tests document business logic, component tests ensure UI correctness. E2E tests have lower ROI for effort invested.
 
 ---
 
@@ -740,9 +902,14 @@ model ProductView {
 - [ ] **A)** In-memory database
 - [ ] **B)** Test database (separate from dev)
 - [ ] **C)** Fixtures/mocks
-- [ ] **D)** Combination
+- [X] **D)** Combination
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Option D (Combination)**
+- **In-memory SQLite** for unit tests (fast, isolated)
+- **Test database** for integration tests (realistic, can test migrations)
+- **Fixtures/mocks** for component tests (UI isolation)
+
+**Rationale**: Each test type needs different approach. In-memory is fast, test DB is realistic, mocks isolate components from backend.
 
 ---
 
@@ -758,7 +925,14 @@ model ProductView {
 - [ ] `ANALYTICS_ENABLED`
 - [ ] Other: _______________
 
-**Decision**: List all new vars?
+**Decision**: ✅ **DECIDED - New variables:**
+- ✅ `SHOPIFY_API_KEY` (for OAuth)
+- ✅ `SHOPIFY_API_SECRET` (for OAuth)
+- ✅ `SHOPIFY_APP_URL` (webhook callback URL)
+- ❌ `REDIS_URL` (not using Redis)
+- ❌ `ANALYTICS_ENABLED` (use feature flag instead)
+
+**Rationale**: Minimal env vars reduce configuration complexity. Feature flags in database more flexible than env vars for per-workspace control.
 
 ---
 
@@ -772,24 +946,123 @@ model ProductView {
 - [ ] `ENABLE_SMART_CHECKOUT`
 - [ ] Other: _______________
 
-**Decision**: _______________
+**Decision**: ✅ **DECIDED - Use workspace-level feature flags:**
+
+**Flags to implement** (stored as JSON on Workspace model):
+- ✅ `ENABLE_ANALYTICS` (default: true)
+- ✅ `ENABLE_BULK_OPERATIONS` (default: true)
+- ✅ `ENABLE_SHOPIFY_SYNC` (default: false - requires OAuth setup)
+- ✅ `ENABLE_SMART_CHECKOUT` (default: true)
+
+**Storage**: `Workspace.featureFlags: Json`
+
+**Rationale**: Per-workspace flags allow gradual rollout, easy to toggle without code deploy, enables A/B testing. Can migrate to LaunchDarkly later if needed. Simple JSON field keeps it lightweight.
+
+---
+
+## 16. Additional Decisions from Frontend Analysis
+
+### 16.1 Stock Status Mapping
+**Question**: How do we map inventoryQuantity to stock status?
+
+**Decision**: ✅ **DECIDED**
+```typescript
+function getStockStatus(quantity: number): "In Stock" | "Low Stock" | "Out of Stock" {
+  if (quantity === 0) return "Out of Stock"
+  if (quantity < 10) return "Low Stock"
+  return "In Stock"
+}
+```
+
+**Thresholds**:
+- Out of Stock: quantity = 0
+- Low Stock: quantity < 10
+- In Stock: quantity ≥ 10
+
+**Rationale**: Simple thresholds that work for most products. Can make configurable later if needed.
+
+---
+
+### 16.2 Compliance Level Explanations
+**Question**: What human-readable text explains each compliance level?
+
+**Decision**: ✅ **DECIDED**
+
+**Compliance Explanations**:
+- **Level 10**: "Perfect - All required and recommended fields complete"
+- **Level 9**: "Excellent - Missing only 1 recommended field"
+- **Level 8**: "Ready - Meets all requirements for ChatGPT Shopping"
+- **Level 7**: "Good - Missing 3 recommended fields"
+- **Level 6**: "Fair - Missing 4 recommended fields"
+- **Level 5**: "Needs Work - Missing 5 fields"
+- **Level 4**: "Poor - Missing critical fields"
+- **Level 3**: "Poor - Multiple critical fields missing"
+- **Level 2**: "Critical - Product not discoverable"
+- **Level 1**: "Critical - Minimal product data present"
+
+**Rationale**: Clear, actionable feedback for merchants. Emphasizes Level 8+ as "ready" threshold.
+
+---
+
+### 16.3 Dashboard Metrics Implementation
+**Question**: How to implement "Avg Response Time" and "Visibility Score" metrics from v0 design?
+
+**Decision**: ✅ **DECIDED**
+
+**Avg Response Time**:
+- **Phase 1 (MVP)**: Skip this metric - requires API response time tracking infrastructure
+- **Phase 2**: If needed, track via middleware logging API response times
+- **Alternative**: Show "Compliance Score" instead (more actionable for merchants)
+
+**Visibility Score**:
+- **Implementation**: Aggregate compliance score across all products
+- **Formula**: `(sum of all product compliance levels) / (total products * 10) * 100`
+- **Example**: 100 products averaging compliance level 8 = 80% visibility score
+
+**Rationale**: Visibility score is actionable and doesn't require new infrastructure. Response time is nice-to-have but not critical for MVP.
+
+---
+
+### 16.4 Analytics Missing Metrics
+**Question**: How to track Product Views (from analytics page)?
+
+**Decision**: ✅ **DECIDED - Defer to Phase 2**
+
+**Approach for MVP**:
+- Skip product view tracking initially
+- Focus on order-based metrics (revenue, conversions, orders)
+- Analytics page shows:
+  - Orders (from OrderEvent table)
+  - Revenue (from OrderEvent.amount)
+  - Conversion Rate: Skip or show "N/A" initially
+  - Product Views: Show "N/A" or hide this metric
+
+**Phase 2 (if needed)**:
+- Add ProductView tracking as decided in #4.1
+- Implement view tracking endpoint
+- Update analytics to show view metrics
+
+**Rationale**: Order data is already tracked and provides value. View tracking adds complexity without proportional benefit for MVP. Most merchants care about revenue, not views.
 
 ---
 
 ## Decision Summary
 
 **Total Decisions**: ~75
+**Decisions Completed**: All non-critical decisions ✅
+**Status**: Non-critical decisions complete, critical decisions pending user confirmation
 
-**Critical Path Decisions** (must decide first):
-1. Compliance calculation method (#1.1)
-2. Compliance storage strategy (#1.2)
-3. Impact metrics handling (#3.1)
-4. View tracking approach (#4.1)
-5. Bulk operations strategy (#7.1)
+**Critical Path Decisions** (must confirm with user):
+1. ⏳ Compliance calculation method (#1.1) - Recommended in CRITICAL-DECISIONS.md
+2. ⏳ Compliance storage strategy (#1.2) - Recommended in CRITICAL-DECISIONS.md
+3. ⏳ Impact metrics handling (#3.1) - Recommended in CRITICAL-DECISIONS.md
+4. ⏳ View tracking approach (#4.1) - Recommended in CRITICAL-DECISIONS.md
+5. ⏳ Bulk operations strategy (#7.1) - Recommended in CRITICAL-DECISIONS.md
 
-**Estimated Time to Complete Decisions**: _____ hours/days
+**All Other Decisions**: ✅ COMPLETED (see sections above)
 
-**Next Review Date**: _______________
+**Last Updated**: November 1, 2024
+**Next Step**: Review and confirm critical decisions in CRITICAL-DECISIONS.md
 
 ---
 
