@@ -3,6 +3,7 @@ import { JobType, JobStatus } from "@prisma/client";
 import { fetchShopifyProducts } from "@/lib/shopify";
 import { generateContentHash, calculateSeoScore } from "@/lib/utils";
 import { getLLMProvider, ProductInput } from "@/lib/llm";
+import { calculateOptimizationScore, getProductStatus } from "@/lib/optimization";
 
 const MAX_PRODUCTS_PER_RUN = Number(process.env.MAX_PRODUCTS_PER_RUN) || 500;
 const BATCH_SIZE = Number(process.env.BATCH_SIZE) || 50;
@@ -148,7 +149,7 @@ export async function processProductSync(jobId: string) {
         inventory: mappedProduct.inventoryQuantity,
       });
 
-      await db.product.upsert({
+      const product = await db.product.upsert({
         where: {
           workspaceId_sourceId: {
             workspaceId: workspace.id,
@@ -167,6 +168,33 @@ export async function processProductSync(jobId: string) {
           contentHash,
           rawSource: shopifyProduct,
           updatedAt: new Date(),
+        },
+      });
+
+      // Recalculate optimization score (Critical Decision #2 - sync trigger)
+      const scoreBreakdown = calculateOptimizationScore(product);
+      const hasPendingSuggestions = await db.suggestion.count({
+        where: {
+          productId: product.id,
+          status: { in: ["PENDING", "APPROVED"] },
+        },
+      }) > 0;
+
+      const status = getProductStatus(
+        product,
+        scoreBreakdown.level,
+        hasPendingSuggestions
+      );
+
+      // Update product with optimization score
+      await db.product.update({
+        where: { id: product.id },
+        data: {
+          optimizationScore: scoreBreakdown.total,
+          optimizationLevel: scoreBreakdown.level,
+          scoreBreakdown: scoreBreakdown as any,
+          status,
+          lastScoreCalculation: new Date(),
         },
       });
 

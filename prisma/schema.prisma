@@ -32,6 +32,15 @@ model Workspace {
   returnPolicy         String?
   returnWindow         Int?      // days
 
+  // Shopify Integration Settings (CD #5.1, #5.2)
+  syncSettings         Json?     // { autoSyncEnabled, syncInterval, syncInventory, syncPrices, syncNewProducts }
+
+  // Smart Checkout Rules (CD #6.1)
+  checkoutRules        Json?     // { enableCheckoutWhen: { inventoryMin, ratingMin, excludeTags, complianceMin, requireFields } }
+
+  // Feature Flags (CD #15.2)
+  featureFlags         Json?     // { ENABLE_ANALYTICS, ENABLE_BULK_OPERATIONS, ENABLE_SHOPIFY_SYNC, ENABLE_SMART_CHECKOUT }
+
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -152,6 +161,18 @@ model Product {
   tags                   Json?
   images                 Json?    // Deprecated - use imageLink + additionalImageLinks
 
+  // Agent-Specific Optimization Fields (CD #1.1 - 20 points)
+  useCases               String?  @db.Text // Use cases & benefits (7pts)
+  targetAudience         String?  @db.Text // Target audience & context (7pts)
+  comparableProducts     String?  @db.Text // Similar products, compatibility, differentiators (6pts)
+
+  // Optimization Score (CD #1.1, #1.2)
+  optimizationScore      Int?     // 0-100 raw points
+  optimizationLevel      Int?     // 1-10 derived from score ranges
+  scoreBreakdown         Json?    // Detailed category breakdown: { coreContent, productIdentity, agentFields, etc. }
+  status                 String?  // "ready" (≥8, no pending), "pending" (has suggestions), "missing" (<5 or critical fields)
+  lastScoreCalculation   DateTime? // When score was last calculated
+
   // Internal
   contentHash            String?
   rawSource              Json?
@@ -169,6 +190,10 @@ model Product {
   @@index([enableSearch])
   @@index([enableCheckout])
   @@index([availability])
+  @@index([optimizationLevel])
+  @@index([status])
+  @@index([workspaceId, optimizationLevel])
+  @@index([workspaceId, status])
 }
 
 // Enums
@@ -301,6 +326,13 @@ model Suggestion {
   status      SuggestionStatus @default(PENDING)
   reviewerId  String?
   errorMsg    String?          @db.Text
+
+  // Score Impact (CD #3.1)
+  scoreImpact Json?            // { category, points, currentLevel, newLevel, description }
+
+  // Confidence Score (CD #7 from Next 5)
+  confidence  Int?             // 0-100 confidence score from LLM
+
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   appliedAt   DateTime?
@@ -313,6 +345,8 @@ model Suggestion {
   @@index([workspaceId, status])
   @@index([productId])
   @@index([status])
+  @@index([riskLevel])
+  @@index([confidence])
 }
 
 model OrderEvent {

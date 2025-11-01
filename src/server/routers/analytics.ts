@@ -36,21 +36,41 @@ export const analyticsRouter = router({
         where: { workspaceId: input.workspaceId },
       });
 
-      // Get products with IC enabled
-      const icEnabledCount = await ctx.db.product.count({
+      // Get products by status
+      const readyProducts = await ctx.db.product.count({
         where: {
           workspaceId: input.workspaceId,
-          instantCheckoutEnabled: true,
+          status: "ready",
         },
       });
 
-      // Get products eligible (have images, in stock, have price)
-      const eligibleProducts = await ctx.db.product.count({
+      const pendingProducts = await ctx.db.product.count({
         where: {
           workspaceId: input.workspaceId,
-          inventory: { gt: 0 },
-          price: { not: null },
-          images: { not: null },
+          status: "pending",
+        },
+      });
+
+      const missingProducts = await ctx.db.product.count({
+        where: {
+          workspaceId: input.workspaceId,
+          status: "missing",
+        },
+      });
+
+      // Get products with checkout enabled
+      const checkoutEnabledCount = await ctx.db.product.count({
+        where: {
+          workspaceId: input.workspaceId,
+          enableCheckout: true,
+        },
+      });
+
+      // Get products with search enabled
+      const searchEnabledCount = await ctx.db.product.count({
+        where: {
+          workspaceId: input.workspaceId,
+          enableSearch: true,
         },
       });
 
@@ -62,34 +82,46 @@ export const analyticsRouter = router({
         },
       });
 
-      // Get average SEO score
-      const auditResults = await ctx.db.auditResult.findMany({
+      // Get average optimization score and level
+      const products = await ctx.db.product.findMany({
         where: {
-          product: {
-            workspaceId: input.workspaceId,
-          },
+          workspaceId: input.workspaceId,
+          optimizationScore: { not: null },
         },
-        orderBy: { createdAt: "desc" },
-        distinct: ["productId"],
-        select: { seoScore: true },
+        select: {
+          optimizationScore: true,
+          optimizationLevel: true,
+        },
       });
 
-      const avgScore =
-        auditResults.length > 0
-          ? auditResults.reduce((sum, r) => sum + r.seoScore, 0) /
-            auditResults.length
+      const avgOptimizationScore =
+        products.length > 0
+          ? products.reduce((sum, p) => sum + (p.optimizationScore || 0), 0) /
+            products.length
+          : 0;
+
+      const avgOptimizationLevel =
+        products.length > 0
+          ? products.reduce((sum, p) => sum + (p.optimizationLevel || 0), 0) /
+            products.length
           : 0;
 
       return {
         last_30d_orders: agenticOrders.length,
         last_30d_gmv: agenticGMV,
-        eligible_products_pct:
-          totalProducts > 0 ? eligibleProducts / totalProducts : 0,
-        instant_checkout_pct:
-          totalProducts > 0 ? icEnabledCount / totalProducts : 0,
-        pending_suggestions: pendingSuggestions,
-        avg_seo_score: Math.round(avgScore),
         total_products: totalProducts,
+        ready_products: readyProducts,
+        pending_products: pendingProducts,
+        missing_products: missingProducts,
+        ready_products_pct:
+          totalProducts > 0 ? readyProducts / totalProducts : 0,
+        checkout_enabled_count: checkoutEnabledCount,
+        checkout_enabled_pct:
+          totalProducts > 0 ? checkoutEnabledCount / totalProducts : 0,
+        search_enabled_count: searchEnabledCount,
+        pending_suggestions: pendingSuggestions,
+        avg_optimization_score: Math.round(avgOptimizationScore),
+        avg_optimization_level: Math.round(avgOptimizationLevel * 10) / 10,
       };
     }),
 
