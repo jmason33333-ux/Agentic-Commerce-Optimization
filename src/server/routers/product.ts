@@ -2,6 +2,7 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
 import { JobType, JobStatus } from "@prisma/client";
 import { processProductSync } from "@/lib/jobs/processor";
+import { calculateOptimizationScore, getProductStatus } from "@/lib/optimization";
 
 export const productRouter = router({
   list: protectedProcedure
@@ -10,6 +11,10 @@ export const productRouter = router({
         workspaceId: z.string(),
         limit: z.number().optional(),
         offset: z.number().optional(),
+        status: z.enum(["ready", "pending", "missing"]).optional(),
+        minLevel: z.number().min(1).max(10).optional(),
+        maxLevel: z.number().min(1).max(10).optional(),
+        search: z.string().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -21,8 +26,28 @@ export const productRouter = router({
         throw new Error("Workspace not found");
       }
 
+      // Build where clause with filters
+      const where: any = { workspaceId: input.workspaceId };
+
+      if (input.status) {
+        where.status = input.status;
+      }
+
+      if (input.minLevel || input.maxLevel) {
+        where.optimizationLevel = {};
+        if (input.minLevel) where.optimizationLevel.gte = input.minLevel;
+        if (input.maxLevel) where.optimizationLevel.lte = input.maxLevel;
+      }
+
+      if (input.search) {
+        where.OR = [
+          { title: { contains: input.search, mode: "insensitive" } },
+          { sourceId: { contains: input.search, mode: "insensitive" } },
+        ];
+      }
+
       const products = await ctx.db.product.findMany({
-        where: { workspaceId: input.workspaceId },
+        where,
         take: input.limit || 50,
         skip: input.offset || 0,
         orderBy: { updatedAt: "desc" },
@@ -41,7 +66,14 @@ export const productRouter = router({
         },
       });
 
-      return products;
+      // Get total count for pagination
+      const total = await ctx.db.product.count({ where });
+
+      return {
+        products,
+        total,
+        hasMore: (input.offset || 0) + products.length < total,
+      };
     }),
 
   getById: protectedProcedure
@@ -70,6 +102,131 @@ export const productRouter = router({
       }
 
       return product;
+    }),
+
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        data: z.object({
+          title: z.string().optional(),
+          description: z.string().optional(),
+          price: z.number().optional(),
+          gtin: z.string().optional(),
+          mpn: z.string().optional(),
+          brand: z.string().optional(),
+          productCategory: z.string().optional(),
+          useCases: z.string().optional(),
+          targetAudience: z.string().optional(),
+          comparableProducts: z.string().optional(),
+          imageLink: z.string().optional(),
+          weight: z.number().optional(),
+          weightUnit: z.string().optional(),
+          // Add other editable fields as needed
+        }),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Fetch product and verify ownership
+      const product = await ctx.db.product.findUnique({
+        where: { id: input.id },
+        include: { workspace: true },
+      });
+
+      if (!product || product.workspace.ownerId !== ctx.session.user.id) {
+        throw new Error("Product not found");
+      }
+
+      // Update product with new data
+      const updatedProduct = await ctx.db.product.update({
+        where: { id: input.id },
+        data: input.data,
+      });
+
+      // Recalculate optimization score (Critical Decision #2)
+      const scoreBreakdown = calculateOptimizationScore(updatedProduct);
+      const hasPendingSuggestions = await ctx.db.suggestion.count({
+        where: {
+          productId: input.id,
+          status: { in: ["PENDING", "APPROVED"] },
+        },
+      }) > 0;
+
+      const status = getProductStatus(
+        updatedProduct,
+        scoreBreakdown.level,
+        hasPendingSuggestions
+      );
+
+      // Update score and status
+      const finalProduct = await ctx.db.product.update({
+        where: { id: input.id },
+        data: {
+          optimizationScore: scoreBreakdown.total,
+          optimizationLevel: scoreBreakdown.level,
+          scoreBreakdown: scoreBreakdown as any,
+          status,
+          lastScoreCalculation: new Date(),
+        },
+      });
+
+      // Log the change
+      await ctx.db.changeLog.create({
+        data: {
+          workspaceId: product.workspaceId,
+          productId: input.id,
+          changeType: "manual_edit",
+          oldValue: product as any,
+          newValue: input.data as any,
+          actorType: "USER",
+          actorId: ctx.session.user.id,
+        },
+      });
+
+      return finalProduct;
+    }),
+
+  recalculateScore: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Fetch product and verify ownership
+      const product = await ctx.db.product.findUnique({
+        where: { id: input.id },
+        include: { workspace: true },
+      });
+
+      if (!product || product.workspace.ownerId !== ctx.session.user.id) {
+        throw new Error("Product not found");
+      }
+
+      // Calculate optimization score
+      const scoreBreakdown = calculateOptimizationScore(product);
+      const hasPendingSuggestions = await ctx.db.suggestion.count({
+        where: {
+          productId: input.id,
+          status: { in: ["PENDING", "APPROVED"] },
+        },
+      }) > 0;
+
+      const status = getProductStatus(
+        product,
+        scoreBreakdown.level,
+        hasPendingSuggestions
+      );
+
+      // Update product with new score
+      const updatedProduct = await ctx.db.product.update({
+        where: { id: input.id },
+        data: {
+          optimizationScore: scoreBreakdown.total,
+          optimizationLevel: scoreBreakdown.level,
+          scoreBreakdown: scoreBreakdown as any,
+          status,
+          lastScoreCalculation: new Date(),
+        },
+      });
+
+      return updatedProduct;
     }),
 
   sync: protectedProcedure

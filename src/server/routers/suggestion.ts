@@ -5,6 +5,7 @@ import {
   writeAgentSeoMetafields,
   updateShopifyProduct,
 } from "@/lib/shopify";
+import { calculateOptimizationScore, getProductStatus } from "@/lib/optimization";
 
 export const suggestionRouter = router({
   list: protectedProcedure
@@ -353,6 +354,38 @@ export const suggestionRouter = router({
               appliedAt: new Date(),
             },
           });
+
+          // Recalculate optimization score (Critical Decision #2 - suggestion approval trigger)
+          const updatedProduct = await ctx.db.product.findUnique({
+            where: { id: product.id },
+          });
+
+          if (updatedProduct) {
+            const scoreBreakdown = calculateOptimizationScore(updatedProduct);
+            const hasPendingSuggestions = await ctx.db.suggestion.count({
+              where: {
+                productId: product.id,
+                status: { in: ["PENDING", "APPROVED"] },
+              },
+            }) > 0;
+
+            const status = getProductStatus(
+              updatedProduct,
+              scoreBreakdown.level,
+              hasPendingSuggestions
+            );
+
+            await ctx.db.product.update({
+              where: { id: product.id },
+              data: {
+                optimizationScore: scoreBreakdown.total,
+                optimizationLevel: scoreBreakdown.level,
+                scoreBreakdown: scoreBreakdown as any,
+                status,
+                lastScoreCalculation: new Date(),
+              },
+            });
+          }
 
           results.push({ suggestionId, success: true });
         } catch (error: any) {
