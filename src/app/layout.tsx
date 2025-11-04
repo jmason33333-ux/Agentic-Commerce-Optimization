@@ -6,8 +6,8 @@ import { TRPCProvider } from "@/lib/trpc/Provider";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Agent Commerce SEO",
-  description: "Optimize your store for AI-powered shopping experiences",
+  title: "AI Agent-Ready Catalog | Nobo Studio",
+  description: "The fastest way for Shopify merchants to sell on ChatGPT. Premium commerce infrastructure for AI-native shopping experiences.",
 };
 
 export default function RootLayout({
