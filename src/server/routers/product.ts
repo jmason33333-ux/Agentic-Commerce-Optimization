@@ -112,6 +112,7 @@ export const productRouter = router({
           title: z.string().optional(),
           description: z.string().optional(),
           price: z.number().optional(),
+          currency: z.string().optional(),
           gtin: z.string().optional(),
           mpn: z.string().optional(),
           brand: z.string().optional(),
@@ -120,6 +121,8 @@ export const productRouter = router({
           targetAudience: z.string().optional(),
           comparableProducts: z.string().optional(),
           imageLink: z.string().optional(),
+          link: z.string().optional(),
+          availability: z.string().optional(),
           weight: z.number().optional(),
           weightUnit: z.string().optional(),
           // Add other editable fields as needed
@@ -143,33 +146,6 @@ export const productRouter = router({
         data: input.data,
       });
 
-      // Recalculate optimization score (Critical Decision #2)
-      const scoreBreakdown = calculateOptimizationScore(updatedProduct);
-      const hasPendingSuggestions = await ctx.db.suggestion.count({
-        where: {
-          productId: input.id,
-          status: { in: ["PENDING", "APPROVED"] },
-        },
-      }) > 0;
-
-      const status = getProductStatus(
-        updatedProduct,
-        scoreBreakdown.level,
-        hasPendingSuggestions
-      );
-
-      // Update score and status
-      const finalProduct = await ctx.db.product.update({
-        where: { id: input.id },
-        data: {
-          optimizationScore: scoreBreakdown.total,
-          optimizationLevel: scoreBreakdown.level,
-          scoreBreakdown: scoreBreakdown as any,
-          status,
-          lastScoreCalculation: new Date(),
-        },
-      });
-
       // Log the change
       await ctx.db.changeLog.create({
         data: {
@@ -183,7 +159,7 @@ export const productRouter = router({
         },
       });
 
-      return finalProduct;
+      return updatedProduct;
     }),
 
   recalculateScore: protectedProcedure
