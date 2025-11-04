@@ -62,31 +62,18 @@ export default function Step3Page() {
     router.push("/wizard/step-4");
   };
 
-  const getComplianceColor = (score: number) => {
-    if (score >= 70) return "text-green-600";
-    if (score >= 40) return "text-amber-600";
-    return "text-red-600";
-  };
-
-  const getComplianceDots = (score: number) => {
-    const filled = Math.round(score / 10);
+  const getStatusBadge = (product: any) => {
+    if (product.isReady) {
+      return (
+        <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200">
+          ✓ Ready
+        </Badge>
+      );
+    }
     return (
-      <div className="flex gap-0.5">
-        {Array.from({ length: 10 }).map((_, i) => (
-          <div
-            key={i}
-            className={`h-1.5 w-1.5 rounded-full ${
-              i < filled
-                ? score >= 70
-                  ? "bg-green-500"
-                  : score >= 40
-                  ? "bg-amber-500"
-                  : "bg-red-500"
-                : "bg-border"
-            }`}
-          />
-        ))}
-      </div>
+      <Badge variant="outline" className="border-amber-500 text-amber-700">
+        Missing Fields
+      </Badge>
     );
   };
 
@@ -96,8 +83,8 @@ export default function Step3Page() {
       <div>
         <h2 className="text-3xl font-bold text-foreground">Product Review</h2>
         <p className="mt-2 text-muted-foreground leading-relaxed">
-          Enable products for ChatGPT search and checkout. This means only your
-          best products appear to AI agents, ensuring high conversion rates.
+          Enable products for ChatGPT search and checkout. This means only products
+          with all required fields will appear in ChatGPT shopping conversations.
         </p>
       </div>
 
@@ -144,18 +131,18 @@ export default function Step3Page() {
         </div>
       )}
 
-      {/* Optimize Later Banner */}
+      {/* Complete Later Banner */}
       {readiness && readiness.incomplete > 0 && (
         <Card className="p-4 bg-secondary/50 border-amber-200">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="text-sm font-medium text-foreground">
-                {readiness.incomplete} products need optimization before they can be enabled
+                {readiness.incomplete} products have missing required fields
               </p>
               <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
-                Only products meeting OpenAI's requirements can be enabled for ChatGPT.
-                You can optimize incomplete products after completing this setup wizard.
+                Products with missing fields can't be enabled for ChatGPT.
+                You can complete these products in the Products page after finishing this setup wizard.
               </p>
             </div>
           </div>
@@ -222,26 +209,14 @@ export default function Step3Page() {
                   <h4 className="font-medium text-sm truncate">{product.title}</h4>
                   <div className="mt-1 flex items-center gap-3">
                     <span className="text-sm font-medium text-foreground">
-                      ${product.price}
+                      ${product.price} {product.currency || "USD"}
                     </span>
-                    {getComplianceDots(product.complianceScore || 0)}
-                    <span
-                      className={`text-xs font-medium ${getComplianceColor(
-                        product.complianceScore || 0
-                      )}`}
-                    >
-                      {product.complianceScore || 0}/100
-                    </span>
+                    {getStatusBadge(product)}
                   </div>
 
                   {!product.canEnable && product.missingFields && product.missingFields.length > 0 && (
                     <p className="mt-1 text-xs text-amber-700">
-                      Missing: {product.missingFields.join(", ")}
-                    </p>
-                  )}
-                  {!product.canEnable && (!product.missingFields || product.missingFields.length === 0) && (
-                    <p className="mt-1 text-xs text-amber-700">
-                      Compliance score below 70 - needs optimization
+                      <strong>Missing:</strong> {product.missingFields.join(", ")}
                     </p>
                   )}
                 </div>
@@ -275,10 +250,10 @@ export default function Step3Page() {
                   ) : (
                     <>
                       <Badge variant="outline" className="text-xs border-amber-500 text-amber-700">
-                        Needs Optimization
+                        Incomplete
                       </Badge>
                       <p className="text-xs text-muted-foreground">
-                        Edit after setup
+                        Complete after setup
                       </p>
                     </>
                   )}
@@ -295,22 +270,22 @@ export default function Step3Page() {
         <ul className="space-y-2 text-sm text-muted-foreground">
           <li className="flex gap-2">
             <CheckCircle2 className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
-            Products with <strong className="text-foreground">70+ compliance score</strong> can be
+            Products with <strong className="text-foreground">all required fields</strong> can be
             enabled immediately for ChatGPT
           </li>
           <li className="flex gap-2">
             <CheckCircle2 className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
-            Products below 70 are blocked from enabling until they're optimized
+            Required fields: Title, Description, Price, Image, Product URL, Availability, and GTIN or Brand
           </li>
           <li className="flex gap-2">
             <CheckCircle2 className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
-            You can optimize incomplete products in the Products page after setup
+            Products missing required fields are blocked until they're completed in the Products page
           </li>
           <li className="flex gap-2">
             <CheckCircle2 className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
             <span>
-              This means <strong className="text-foreground">AI agents can confidently recommend</strong> only
-              your best products to customers
+              This means <strong className="text-foreground">only complete products</strong> appear
+              in ChatGPT shopping conversations
             </span>
           </li>
         </ul>

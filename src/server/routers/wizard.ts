@@ -241,6 +241,7 @@ export const wizardRouter = router({
 
   /**
    * STEP 3: Get product readiness summary
+   * MVP: Check for required fields only (no optimization scoring)
    */
   getProductReadiness: protectedProcedure.query(async ({ ctx }) => {
     const products = await ctx.db.product.findMany({
@@ -250,35 +251,71 @@ export const wizardRouter = router({
       select: {
         id: true,
         title: true,
+        description: true,
         price: true,
-        optimizationScore: true,
-        optimizationLevel: true,
+        currency: true,
+        imageLink: true,
+        link: true,
+        availability: true,
+        gtin: true,
+        brand: true,
         status: true,
         enableSearch: true,
         enableCheckout: true,
-        imageLink: true,
       },
     });
 
-    const ready = products.filter((p) => (p.optimizationScore || 0) >= 70);
-    const incomplete = products.filter((p) => (p.optimizationScore || 0) < 70);
+    // Check required fields for OpenAI product feed
+    const checkRequiredFields = (product: any) => {
+      const missing: string[] = [];
+
+      if (!product.title?.trim()) missing.push("Title");
+      if (!product.description?.trim()) missing.push("Description");
+      if (!product.price || product.price <= 0) missing.push("Price");
+      if (!product.imageLink?.trim()) missing.push("Image");
+      if (!product.link?.trim()) missing.push("Product URL");
+      if (!product.availability?.trim()) missing.push("Availability");
+
+      // GTIN or Brand required (at least one)
+      if (!product.gtin?.trim() && !product.brand?.trim()) {
+        missing.push("GTIN or Brand");
+      }
+
+      return missing;
+    };
+
+    const productsWithReadiness = products.map((p) => {
+      const missingFields = checkRequiredFields(p);
+      const isReady = missingFields.length === 0;
+
+      return {
+        id: p.id,
+        title: p.title || "Untitled Product",
+        price: p.price || 0,
+        currency: p.currency || "USD",
+        imageLink: p.imageLink,
+        enableSearch: p.enableSearch,
+        enableCheckout: p.enableCheckout,
+        isReady,
+        missingFields,
+        canEnable: isReady,
+      };
+    });
+
+    const ready = productsWithReadiness.filter((p) => p.isReady);
+    const incomplete = productsWithReadiness.filter((p) => !p.isReady);
 
     return {
       total: products.length,
       ready: ready.length,
       incomplete: incomplete.length,
-      products: products.map((p) => ({
-        ...p,
-        isCompliant: (p.optimizationScore || 0) >= 70,
-        missingFields: [], // TODO: Calculate from product data
-        canEnable: (p.optimizationScore || 0) >= 70,
-        complianceScore: p.optimizationScore,
-      })),
+      products: productsWithReadiness,
     };
   }),
 
   /**
    * STEP 3: Toggle product for search/checkout
+   * MVP: Check for required fields only
    */
   toggleProduct: protectedProcedure
     .input(
@@ -294,12 +331,43 @@ export const wizardRouter = router({
 
       const product = await ctx.db.product.findUnique({
         where: { id: input.productId },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          price: true,
+          imageLink: true,
+          link: true,
+          availability: true,
+          gtin: true,
+          brand: true,
+          enableSearch: true,
+          enableCheckout: true,
+        },
       });
 
-      if (!product || (product.optimizationScore || 0) < 70) {
+      if (!product) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Product not found',
+        });
+      }
+
+      // Check required fields
+      const hasRequiredFields =
+        product.title?.trim() &&
+        product.description?.trim() &&
+        product.price &&
+        product.price > 0 &&
+        product.imageLink?.trim() &&
+        product.link?.trim() &&
+        product.availability?.trim() &&
+        (product.gtin?.trim() || product.brand?.trim());
+
+      if (!hasRequiredFields) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
-          message: 'Cannot enable incomplete product',
+          message: 'Cannot enable product with missing required fields',
         });
       }
 
@@ -360,10 +428,10 @@ export const wizardRouter = router({
     );
 
     // Test 3: Products ready
+    // MVP: Just check if any products are enabled (no optimization score check)
     const readyProducts = await ctx.db.product.count({
       where: {
         workspaceId: ctx.session.user.workspaceId,
-        optimizationScore: { gte: 70 },
         OR: [{ enableSearch: true }, { enableCheckout: true }],
       },
     });
