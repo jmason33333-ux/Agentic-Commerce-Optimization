@@ -3,7 +3,9 @@ import { router, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
 import { ShopifyOAuth, SHOPIFY_SCOPES } from '@/lib/shopify/oauth';
 import { ShopifyClient } from '@/lib/shopify/client';
-import { encryptString, decryptString } from '@/lib/encryption';
+import { encryptApiKey, decryptApiKey } from '@/lib/security/apiKeyManager';
+import { checkRateLimit, toggleRateLimiter, authRateLimiter } from '@/lib/security/rateLimiter';
+import { logApiKeyUsage } from '@/lib/security/monitoring';
 import { importShopifyProducts } from '@/lib/services/shopifyImport';
 
 export const wizardRouter = router({
@@ -167,7 +169,7 @@ export const wizardRouter = router({
       const accessToken = await oauth.getAccessToken(input.shop, input.code);
 
       // Encrypt access token before storing
-      const encryptedToken = encryptString(accessToken);
+      const encryptedToken = encryptApiKey(accessToken);
 
       // Save to workspace
       await ctx.db.workspace.update({
@@ -178,6 +180,9 @@ export const wizardRouter = router({
           shopifyConnectedAt: new Date(),
         },
       });
+
+      // Log API key usage for security audit
+      await logApiKeyUsage(ctx.session.user.workspaceId, 'shopify', 'connected');
 
       // Fetch shop info and products
       const client = new ShopifyClient(input.shop, accessToken);
@@ -284,6 +289,9 @@ export const wizardRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Rate limit: 1000 toggles per hour per workspace
+      await checkRateLimit(toggleRateLimiter, ctx.session.user.workspaceId);
+
       const product = await ctx.db.product.findUnique({
         where: { id: input.productId },
       });
@@ -330,10 +338,13 @@ export const wizardRouter = router({
       try {
         const client = new ShopifyClient(
           workspace.shopifyDomain,
-          decryptString(workspace.shopifyAccessToken)
+          decryptApiKey(workspace.shopifyAccessToken)
         );
         await client.getShop();
         results.shopifyConnection = true;
+
+        // Log API key usage
+        await logApiKeyUsage(ctx.session.user.workspaceId, 'shopify', 'test_connection');
       } catch (error) {
         console.error('Shopify connection test failed:', error);
       }

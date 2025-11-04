@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { encryptString, decryptString } from '@/lib/encryption';
+import { encryptApiKey, decryptApiKey } from '@/lib/security/apiKeyManager';
+import { logApiKeyUsage } from '@/lib/security/monitoring';
 
 export const checkoutRouter = router({
   /**
@@ -18,14 +19,18 @@ export const checkoutRouter = router({
     .mutation(async ({ ctx, input }) => {
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
+      // Encrypt sensitive keys before storing
+      const encryptedSecretKey = encryptApiKey(input.secretKey);
+      const encryptedWebhookSecret = encryptApiKey(input.webhookSecret);
+
       // Create or update CheckoutConfig
       const config = await ctx.db.checkoutConfig.upsert({
         where: { workspaceId: ctx.session.user.workspaceId },
         create: {
           workspaceId: ctx.session.user.workspaceId,
           stripePublishableKey: input.publishableKey,
-          stripeSecretKey: encryptString(input.secretKey),
-          stripeWebhookSecret: encryptString(input.webhookSecret),
+          stripeSecretKey: encryptedSecretKey,
+          stripeWebhookSecret: encryptedWebhookSecret,
           testMode: input.testMode,
           checkoutUrl: `${baseUrl}/api/checkout/sessions`,
           webhookUrl: `${baseUrl}/api/webhooks/openai`,
@@ -33,11 +38,14 @@ export const checkoutRouter = router({
         },
         update: {
           stripePublishableKey: input.publishableKey,
-          stripeSecretKey: encryptString(input.secretKey),
-          stripeWebhookSecret: encryptString(input.webhookSecret),
+          stripeSecretKey: encryptedSecretKey,
+          stripeWebhookSecret: encryptedWebhookSecret,
           testMode: input.testMode,
         },
       });
+
+      // Log API key usage for security audit
+      await logApiKeyUsage(ctx.session.user.workspaceId, 'stripe', 'configured');
 
       return config;
     }),
@@ -77,8 +85,8 @@ export const checkoutRouter = router({
     }
 
     try {
-      // Test Stripe API with secret key
-      const secretKey = decryptString(config.stripeSecretKey);
+      // Decrypt Stripe API key
+      const secretKey = decryptApiKey(config.stripeSecretKey);
 
       const response = await fetch('https://api.stripe.com/v1/balance', {
         headers: {
@@ -89,6 +97,9 @@ export const checkoutRouter = router({
       if (!response.ok) {
         throw new Error('Invalid Stripe credentials');
       }
+
+      // Log API key usage for security audit
+      await logApiKeyUsage(ctx.session.user.workspaceId, 'stripe', 'test_connection');
 
       return { success: true, message: 'Stripe connection successful' };
     } catch (error) {
@@ -137,13 +148,16 @@ export const checkoutRouter = router({
       throw new Error('Checkout configuration not found');
     }
 
+    // Decrypt OpenAI API key
+    const apiKey = decryptApiKey(workspace.openaiApiKey);
+
     // Register checkout endpoints with OpenAI
     const response = await fetch(
       'https://api.openai.com/v1/commerce/checkout/register',
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${decryptString(workspace.openaiApiKey)}`,
+          Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -162,6 +176,9 @@ export const checkoutRouter = router({
     }
 
     const result = await response.json();
+
+    // Log API key usage for security audit
+    await logApiKeyUsage(ctx.session.user.workspaceId, 'openai', 'checkout_registration');
 
     // Save registration
     await ctx.db.checkoutConfig.update({

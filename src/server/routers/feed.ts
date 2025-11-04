@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { encryptString, decryptString } from '@/lib/encryption';
+import { encryptApiKey, decryptApiKey } from '@/lib/security/apiKeyManager';
+import { checkRateLimit, feedRateLimiter } from '@/lib/security/rateLimiter';
+import { logApiKeyUsage } from '@/lib/security/monitoring';
 import {
   generateProductFeed,
   submitFeedToOpenAI,
@@ -19,15 +21,23 @@ export const feedRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Encrypt API key before storing
+      const encryptedApiKey = encryptApiKey(input.apiKey);
+
       // Save to workspace
-      return await ctx.db.workspace.update({
+      const result = await ctx.db.workspace.update({
         where: { id: ctx.session.user.workspaceId },
         data: {
           openaiMerchantId: input.merchantId,
-          openaiApiKey: encryptString(input.apiKey),
+          openaiApiKey: encryptedApiKey,
           feedRefreshInterval: input.autoRefreshInterval,
         },
       });
+
+      // Log API key usage for security audit
+      await logApiKeyUsage(ctx.session.user.workspaceId, 'openai', 'configured');
+
+      return result;
     }),
 
   /**
@@ -85,6 +95,9 @@ export const feedRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Rate limit: 10 submissions per hour per workspace
+      await checkRateLimit(feedRateLimiter, ctx.session.user.workspaceId);
+
       const workspace = await ctx.db.workspace.findUnique({
         where: { id: ctx.session.user.workspaceId },
       });
@@ -92,6 +105,9 @@ export const feedRouter = router({
       if (!workspace?.openaiMerchantId || !workspace?.openaiApiKey) {
         throw new Error('OpenAI credentials not configured');
       }
+
+      // Decrypt API key for use
+      const apiKey = decryptApiKey(workspace.openaiApiKey);
 
       // Generate feed
       const feed = await generateProductFeed(
@@ -104,9 +120,12 @@ export const feedRouter = router({
       const result = await submitFeedToOpenAI(
         feed,
         workspace.openaiMerchantId,
-        decryptString(workspace.openaiApiKey),
+        apiKey,
         input.format
       );
+
+      // Log API key usage for security audit
+      await logApiKeyUsage(ctx.session.user.workspaceId, 'openai', 'feed_submission');
 
       // Save submission status
       await ctx.db.workspace.update({

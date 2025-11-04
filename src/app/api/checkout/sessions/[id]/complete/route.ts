@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/server/db';
-import { decryptString } from '@/lib/encryption';
+import { decryptApiKey } from '@/lib/security/apiKeyManager';
+import { logApiKeyUsage } from '@/lib/security/monitoring';
 import { z } from 'zod';
 
 const CompleteSessionSchema = z.object({
@@ -78,9 +79,12 @@ export async function POST(
     }
 
     // Process payment with Stripe
-    const stripeSecretKey = decryptString(config.stripeSecretKey);
+    const stripeSecretKey = decryptApiKey(config.stripeSecretKey);
     const totals = session.totals as any;
     const amount = Math.round(parseFloat(totals.total) * 100); // Convert to cents
+
+    // Log API key usage for security audit
+    await logApiKeyUsage(session.workspaceId, 'stripe', 'payment_processing');
 
     try {
       // Create Stripe payment intent
