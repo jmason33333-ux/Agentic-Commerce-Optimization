@@ -6,6 +6,8 @@ import { suggestionRouter } from "./suggestion";
 import { analyticsRouter } from "./analytics";
 import { jobRouter } from "./job";
 import { csvRouter } from "./csv";
+import { feedRouter } from "./feed";
+import { checkoutRouter } from "./checkout";
 
 export const appRouter = router({
   workspace: workspaceRouter,
@@ -15,6 +17,8 @@ export const appRouter = router({
   analytics: analyticsRouter,
   job: jobRouter,
   csv: csvRouter,
+  feed: feedRouter,
+  checkout: checkoutRouter,
 });
 
 export type AppRouter = typeof appRouter;

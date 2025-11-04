@@ -41,15 +41,27 @@ model Workspace {
   // Feature Flags (CD #15.2)
   featureFlags         Json?     // { ENABLE_ANALYTICS, ENABLE_BULK_OPERATIONS, ENABLE_SHOPIFY_SYNC, ENABLE_SMART_CHECKOUT }
 
+  // Feed Auto-Refresh Settings (MVP Phase 1)
+  feedSyncEnabled      Boolean   @default(false)
+  feedSyncFrequency    String    @default("MANUAL") // MANUAL, EVERY_15_MIN, HOURLY, EVERY_6_HOURS, DAILY, WEEKLY
+  lastFeedSyncAt       DateTime?
+  nextFeedSyncAt       DateTime?
+  openaiMerchantId     String?   // Assigned by OpenAI
+  openaiApiKey         String?   // Encrypted, for feed submission
+
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  owner         User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner         User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   products      Product[]
   suggestions   Suggestion[]
   orderEvents   OrderEvent[]
   changeLogs    ChangeLog[]
   jobs          Job[]
+  feedSubmissions FeedSubmission[]
+  checkoutConfig  CheckoutConfig?
+  checkoutSessions CheckoutSession[]
+  orders        Order[]
 
   @@index([ownerId])
   @@index([shopDomain])
@@ -406,4 +418,200 @@ model Job {
 
   @@index([workspaceId, status])
   @@index([status])
+}
+
+// Feed Submission & Auto-Refresh (MVP Phase 1)
+model FeedSubmission {
+  id String @id @default(cuid())
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // Submission details
+  status         FeedSubmissionStatus @default(PENDING)
+  submittedAt    DateTime             @default(now())
+  completedAt    DateTime?
+
+  // OpenAI response
+  feedId         String?              // OpenAI's feed ID
+  indexingStatus String?              // pending, in_progress, indexed, failed
+  errorMessage   String?              @db.Text
+  errorDetails   Json?
+
+  // Feed content snapshot
+  productCount   Int
+  feedUrl        String?              // Where we stored the feed file
+  feedContent    String?              @db.Text // XML/JSON snapshot
+
+  // Metadata
+  triggeredBy    FeedTriggerType      @default(MANUAL)
+  metadata       Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([submittedAt])
+  @@map("feed_submissions")
+}
+
+enum FeedSubmissionStatus {
+  PENDING      // Queued for submission
+  VALIDATING   // Validating feed format
+  SUBMITTING   // Sending to OpenAI
+  SUBMITTED    // Successfully sent to OpenAI
+  INDEXING     // OpenAI is indexing
+  INDEXED      // Successfully indexed in ChatGPT
+  FAILED       // Submission or indexing failed
+  REJECTED     // OpenAI rejected the feed
+}
+
+enum FeedTriggerType {
+  MANUAL       // User clicked "Submit Feed"
+  SCHEDULED    // Auto-sync (every 15min or daily)
+  SYNC         // Triggered by Shopify sync
+  OPTIMIZATION // Triggered after optimization changes
+}
+
+// Agentic Checkout Configuration
+model CheckoutConfig {
+  id String @id @default(cuid())
+
+  workspaceId String    @unique
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // Checkout provider details
+  provider        String  @default("stripe") // stripe, shopify_checkout, custom
+  isConfigured    Boolean @default(false)
+
+  // Stripe configuration (if using Stripe)
+  stripePublishableKey String?
+  stripeSecretKey      String? // Encrypted
+  stripeWebhookSecret  String? // Encrypted
+
+  // Checkout endpoints
+  checkoutUrl      String? // e.g., https://shop.example.com/checkout
+  webhookUrl       String? // For order notifications
+
+  // OpenAI registration
+  openaiCheckoutId String? // OpenAI's checkout configuration ID
+  lastVerifiedAt   DateTime?
+
+  // Settings
+  settings Json?  // Additional checkout settings
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  checkoutSessions CheckoutSession[]
+
+  @@map("checkout_configs")
+}
+
+// Checkout Session Tracking
+model CheckoutSession {
+  id String @id @default(cuid())
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  checkoutConfigId String?
+  checkoutConfig   CheckoutConfig? @relation(fields: [checkoutConfigId], references: [id])
+
+  // Stripe session details
+  stripeSessionId  String  @unique
+  status           CheckoutSessionStatus @default(PENDING)
+
+  // Customer info
+  customerEmail    String
+  shippingAddress  Json?
+
+  // Cart data
+  cartData         Json    // Array of cart items
+
+  // Payment
+  totalAmount      Decimal @db.Decimal(10, 2)
+  currency         String
+  paymentIntentId  String?
+
+  // Timestamps
+  createdAt        DateTime @default(now())
+  completedAt      DateTime?
+  expiresAt        DateTime
+
+  // Metadata
+  metadata         Json?
+
+  // Relations
+  order            Order?
+
+  @@index([workspaceId])
+  @@index([status])
+  @@index([customerEmail])
+  @@map("checkout_sessions")
+}
+
+enum CheckoutSessionStatus {
+  PENDING
+  COMPLETED
+  EXPIRED
+  CANCELLED
+}
+
+// Order Management
+model Order {
+  id String @id @default(cuid())
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  checkoutSessionId String          @unique
+  checkoutSession   CheckoutSession @relation(fields: [checkoutSessionId], references: [id])
+
+  // Order details
+  orderNumber      String?  @unique // Generated order number
+  customerEmail    String
+  totalAmount      Decimal  @db.Decimal(10, 2)
+  currency         String
+
+  // Status
+  status           OrderStatus @default(PENDING_FULFILLMENT)
+
+  // Source tracking
+  source           String   @default("chatgpt_agentic") // chatgpt_agentic, web, pos, etc.
+
+  // Shipping
+  shippingAddress  Json?
+  trackingNumber   String?
+  shippedAt        DateTime?
+  deliveredAt      DateTime?
+
+  // Fulfillment (Shopify)
+  shopifyOrderId   String?
+  shopifyFulfillmentId String?
+
+  // Timestamps
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Metadata
+  metadata         Json?
+  notes            String?  @db.Text
+
+  @@index([workspaceId])
+  @@index([status])
+  @@index([source])
+  @@index([customerEmail])
+  @@map("orders")
+}
+
+enum OrderStatus {
+  PENDING_FULFILLMENT
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+  PAYMENT_FAILED
 }
