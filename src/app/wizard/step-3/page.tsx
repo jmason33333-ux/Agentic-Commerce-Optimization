@@ -123,7 +123,7 @@ export default function Step3Page() {
               </div>
               <div>
                 <p className="text-3xl font-bold text-green-600">{readiness.ready}</p>
-                <p className="text-sm text-muted-foreground">Ready for ChatGPT</p>
+                <p className="text-sm text-muted-foreground">Ready to Sell</p>
               </div>
             </div>
           </Card>
@@ -137,27 +137,54 @@ export default function Step3Page() {
                 <p className="text-3xl font-bold text-amber-600">
                   {readiness.incomplete}
                 </p>
-                <p className="text-sm text-muted-foreground">Need Improvement</p>
+                <p className="text-sm text-muted-foreground">Need Attention</p>
               </div>
             </div>
           </Card>
         </div>
       )}
 
-      {/* Bulk Actions */}
-      {readiness && readiness.ready > 0 && (
-        <Card className="p-4 bg-secondary/50">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium">Enable All Compliant Products</p>
-              <p className="text-sm text-muted-foreground">
-                Automatically enable all {readiness.ready} products that meet ChatGPT
-                standards
+      {/* Optimize Later Banner */}
+      {readiness && readiness.incomplete > 0 && (
+        <Card className="p-4 bg-secondary/50 border-amber-200">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-foreground">
+                {readiness.incomplete} products need optimization before they can be enabled
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
+                Only products meeting OpenAI's requirements can be enabled for ChatGPT.
+                You can optimize incomplete products after completing this setup wizard.
               </p>
             </div>
-            <Button onClick={handleBulkEnable} className="gap-2">
+          </div>
+        </Card>
+      )}
+
+      {/* Bulk Actions */}
+      {readiness && readiness.ready > 0 && (
+        <Card className="p-6 bg-green-50 border-green-200">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+                <p className="font-semibold text-green-900">
+                  {readiness.ready} Products Ready to Sell
+                </p>
+              </div>
+              <p className="text-sm text-green-800 leading-relaxed">
+                These products meet all OpenAI requirements. Enable them for ChatGPT
+                search and checkout to start selling immediately.
+              </p>
+            </div>
+            <Button
+              onClick={handleBulkEnable}
+              className="gap-2 bg-green-600 hover:bg-green-700 flex-shrink-0"
+              size="lg"
+            >
               <CheckCircle2 className="h-4 w-4" />
-              Enable {readiness.ready} Products
+              Enable All {readiness.ready}
             </Button>
           </div>
         </Card>
@@ -207,9 +234,14 @@ export default function Step3Page() {
                     </span>
                   </div>
 
-                  {!product.canEnable && (
-                    <p className="mt-1 text-xs text-destructive">
-                      Score below 70 - needs improvement before enabling
+                  {!product.canEnable && product.missingFields && product.missingFields.length > 0 && (
+                    <p className="mt-1 text-xs text-amber-700">
+                      Missing: {product.missingFields.join(", ")}
+                    </p>
+                  )}
+                  {!product.canEnable && (!product.missingFields || product.missingFields.length === 0) && (
+                    <p className="mt-1 text-xs text-amber-700">
+                      Compliance score below 70 - needs optimization
                     </p>
                   )}
                 </div>
@@ -217,32 +249,38 @@ export default function Step3Page() {
                 {/* Toggle */}
                 <div className="flex flex-col items-end gap-2">
                   {product.canEnable ? (
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id={`product-${product.id}`}
-                        checked={product.enableSearch && product.enableCheckout}
-                        onCheckedChange={(checked) =>
-                          handleToggle(product.id, checked as boolean)
-                        }
-                      />
-                      <label
-                        htmlFor={`product-${product.id}`}
-                        className="text-sm font-medium cursor-pointer"
-                      >
-                        Enable
-                      </label>
-                    </div>
+                    <>
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id={`product-${product.id}`}
+                          checked={product.enableSearch && product.enableCheckout}
+                          onCheckedChange={(checked) =>
+                            handleToggle(product.id, checked as boolean)
+                          }
+                        />
+                        <label
+                          htmlFor={`product-${product.id}`}
+                          className="text-sm font-medium cursor-pointer"
+                        >
+                          Enable
+                        </label>
+                      </div>
+                      {(product.enableSearch || product.enableCheckout) && (
+                        <Badge className="text-xs bg-green-500">
+                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          Enabled
+                        </Badge>
+                      )}
+                    </>
                   ) : (
-                    <Badge variant="outline" className="text-xs">
-                      Not Ready
-                    </Badge>
-                  )}
-
-                  {(product.enableSearch || product.enableCheckout) && (
-                    <Badge className="text-xs bg-green-500">
-                      <CheckCircle2 className="h-3 w-3 mr-1" />
-                      Enabled
-                    </Badge>
+                    <>
+                      <Badge variant="outline" className="text-xs border-amber-500 text-amber-700">
+                        Needs Optimization
+                      </Badge>
+                      <p className="text-xs text-muted-foreground">
+                        Edit after setup
+                      </p>
+                    </>
                   )}
                 </div>
               </div>
@@ -253,13 +291,29 @@ export default function Step3Page() {
 
       {/* Info Box */}
       <div className="rounded-lg bg-secondary p-4">
-        <p className="text-sm font-medium mb-2">What compliance means:</p>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Products need a score of <strong className="text-foreground">70+</strong> to
-          be enabled for ChatGPT. This means they have clear titles, descriptions,
-          images, pricing, and availability. AI agents can confidently recommend
-          compliant products to customers.
-        </p>
+        <p className="text-sm font-medium mb-2">How product readiness works:</p>
+        <ul className="space-y-2 text-sm text-muted-foreground">
+          <li className="flex gap-2">
+            <CheckCircle2 className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+            Products with <strong className="text-foreground">70+ compliance score</strong> can be
+            enabled immediately for ChatGPT
+          </li>
+          <li className="flex gap-2">
+            <CheckCircle2 className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+            Products below 70 are blocked from enabling until they're optimized
+          </li>
+          <li className="flex gap-2">
+            <CheckCircle2 className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+            You can optimize incomplete products in the Products page after setup
+          </li>
+          <li className="flex gap-2">
+            <CheckCircle2 className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+            <span>
+              This means <strong className="text-foreground">AI agents can confidently recommend</strong> only
+              your best products to customers
+            </span>
+          </li>
+        </ul>
       </div>
 
       {/* Navigation */}
