@@ -41,18 +41,46 @@ model Workspace {
   // Feature Flags (CD #15.2)
   featureFlags         Json?     // { ENABLE_ANALYTICS, ENABLE_BULK_OPERATIONS, ENABLE_SHOPIFY_SYNC, ENABLE_SMART_CHECKOUT }
 
+  // Wizard-specific fields
+  // Shopify Connection
+  shopifyDomain        String?   @unique
+  shopifyAccessToken   String?   // Encrypted
+  shopifyConnectedAt   DateTime?
+  shopifyLastSyncAt    DateTime?
+
+  // OpenAI Merchant Application Status
+  merchantApplicationStatus  String?  @default("not_started") // not_started, pending, approved, rejected
+  merchantApplicationDate    DateTime?
+  openaiApprovalDate         DateTime?
+
+  // OpenAI Feed Configuration
+  openaiMerchantId     String?
+  openaiApiKey         String?   // Encrypted
+  feedRefreshInterval  String?   @default("manual") // manual, daily, 15min
+  lastFeedSubmission   DateTime?
+  feedSubmissionId     String?
+  feedStatus           String?   // pending, processing, active, failed
+
+  // Wizard Progress
+  wizardStep           Int?      @default(0)
+  wizardCompleted      Boolean   @default(false)
+  wizardCompletedAt    DateTime?
+
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  owner         User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  products      Product[]
-  suggestions   Suggestion[]
-  orderEvents   OrderEvent[]
-  changeLogs    ChangeLog[]
-  jobs          Job[]
+  owner            User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  products         Product[]
+  suggestions      Suggestion[]
+  orderEvents      OrderEvent[]
+  changeLogs       ChangeLog[]
+  jobs             Job[]
+  wizardProgress   WizardProgress?
+  checkoutConfig   CheckoutConfig?
 
   @@index([ownerId])
   @@index([shopDomain])
+  @@index([shopifyDomain])
 }
 
 model Product {
@@ -406,4 +434,109 @@ model Job {
 
   @@index([workspaceId, status])
   @@index([status])
+}
+
+model WizardProgress {
+  id          String   @id @default(cuid())
+  workspaceId String   @unique
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // Step Completion Status
+  step0_merchantApplication Boolean @default(false)
+  step1_shopifyConnection   Boolean @default(false)
+  step2_storeInformation    Boolean @default(false)
+  step3_productReview       Boolean @default(false)
+  step4_feedSetup           Boolean @default(false)
+  step5_stripeConnection    Boolean @default(false)
+  step6_checkoutConfig      Boolean @default(false)
+  step7_testing             Boolean @default(false)
+
+  // Step Data (JSON storage for flexibility)
+  step0_data Json?
+  step1_data Json?
+  step2_data Json?
+  step3_data Json?
+  step4_data Json?
+  step5_data Json?
+  step6_data Json?
+  step7_data Json?
+
+  currentStep Int      @default(0)
+  completedAt DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("wizard_progress")
+}
+
+model CheckoutConfig {
+  id                    String @id @default(cuid())
+  workspaceId           String @unique
+
+  // Stripe Configuration
+  stripePublishableKey  String
+  stripeSecretKey       String  // Encrypted
+  stripeWebhookSecret   String  // Encrypted
+  testMode              Boolean @default(true)
+
+  // Checkout Endpoints
+  checkoutUrl           String
+  webhookUrl            String
+
+  // Supported Configuration
+  supportedCountries    Json    // Array of country codes
+
+  // OpenAI Registration
+  openaiCheckoutId      String?
+  registeredAt          DateTime?
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("checkout_config")
+}
+
+model CheckoutSession {
+  id                  String   @id @default(cuid())
+  workspaceId         String
+
+  // Session Details
+  status              String   @default("not_ready_for_payment") // not_ready_for_payment, ready_for_payment, completed, canceled
+  currency            String   @default("USD")
+
+  // Line Items & Totals
+  items               Json     // Array of { id, quantity }
+  lineItems           Json     // Calculated line items with pricing
+  totals              Json     // { subtotal, tax, shipping, total }
+
+  // Buyer Information
+  buyer               Json?    // { first_name, last_name, email, phone }
+  fulfillmentAddress  Json?    // Address object
+  fulfillmentOptionId String?
+
+  // Payment
+  paymentProvider     String?  @default("stripe")
+  paymentToken        String?
+  billingAddress      Json?
+
+  // Order Reference (after completion)
+  orderId             String?
+  orderPermalinkUrl   String?
+
+  // Metadata
+  messages            Json?    // Array of message objects
+  expiresAt           DateTime
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  completedAt         DateTime?
+  canceledAt          DateTime?
+
+  @@index([workspaceId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("checkout_sessions")
 }

@@ -1,416 +1,406 @@
-# Agent Commerce SEO
+# Agentic Commerce Setup Platform
 
-A human-in-the-loop (HITL) application that helps Shopify and Etsy merchants optimize their product catalogs for AI-powered shopping experiences like ChatGPT Instant Checkout.
+**The fastest way for Shopify merchants to sell on ChatGPT**
 
-## Features
+A guided setup wizard that helps Shopify merchants connect their store, configure product feeds, and enable checkout for OpenAI's Agentic Commerce Protocol (ACP).
 
-- **Product Catalog Scanning**: Automatically fetch and analyze products from Shopify/Etsy
-- **AI-Powered Optimization**: Generate suggestions using LLM to improve metadata, descriptions, tags, and more
-- **Human-in-the-Loop**: All changes require human approval before being applied
-- **Risk Assessment**: Suggestions are categorized as low/medium/high risk
-- **Change Logging**: Full audit trail of all modifications
-- **Analytics Dashboard**: Track agentic orders, SEO scores, and product eligibility
-- **Async Job Processing**: Handle large catalogs with background job queue
+## 🎯 MVP Focus: Setup First, Optimization Later
 
-## Tech Stack
+This platform gets merchants live on ChatGPT in **under 30 minutes** by focusing on the essentials:
+- ✅ Shopify OAuth connection
+- ✅ Automated product feed generation & submission
+- ✅ Stripe checkout configuration
+- ✅ OpenAI Commerce API registration
 
-- **Frontend**: Next.js 14 (App Router), TypeScript, Tailwind CSS, shadcn/ui
-- **Backend**: Next.js API Routes, tRPC
-- **Database**: PostgreSQL with Prisma ORM
-- **Auth**: NextAuth.js with email magic links
-- **LLM**: OpenAI (with provider-swappable interface)
-- **State Management**: TanStack Query (React Query)
+**Product optimization features** (AI suggestions, SEO scoring) are coming in **v2** as a fast follow.
 
-## Getting Started
+## 🚀 Quick Start
 
 ### Prerequisites
 
-- Node.js 18+ and npm/yarn/pnpm
-- PostgreSQL database (Railway, Supabase, or local)
-- Shopify Custom App credentials (Admin API access token)
-- OpenAI API key
-- Email service (for magic link auth)
+- Node.js 18+ and npm/pnpm
+- PostgreSQL database
+- Shopify Partner account (for OAuth app)
+- Upstash Redis account (free tier works)
+- OpenAI Commerce API merchant account
 
-### Installation
-
-1. **Clone the repository**
+### 1. Clone & Install
 
 ```bash
 git clone https://github.com/jmason33333-ux/Agentic-Commerce-Optimization.git
 cd Agentic-Commerce-Optimization
-```
-
-2. **Install dependencies**
-
-```bash
 npm install
 ```
 
-3. **Set up environment variables**
-
-Copy `.env.example` to `.env` and fill in your values:
+### 2. Environment Setup
 
 ```bash
 cp .env.example .env
 ```
 
-Required environment variables:
+**Required Variables:**
 
-```env
+```bash
 # Database
 DATABASE_URL="postgresql://user:password@host:5432/dbname"
+
+# Security (CRITICAL)
+ENCRYPTION_KEY="generate-with-node-see-below"  # 64 hex chars
+UPSTASH_REDIS_REST_URL="https://your-redis.upstash.io"
+UPSTASH_REDIS_REST_TOKEN="your-token"
+
+# Shopify OAuth
+SHOPIFY_CLIENT_ID="your-client-id"
+SHOPIFY_CLIENT_SECRET="your-client-secret"
+SHOPIFY_REDIRECT_URI="http://localhost:3000/api/auth/shopify/callback"
 
 # NextAuth
 NEXTAUTH_SECRET="generate-with-openssl-rand-base64-32"
 NEXTAUTH_URL="http://localhost:3000"
 
-# Email (for magic links)
-EMAIL_SERVER_HOST="smtp.example.com"
-EMAIL_SERVER_PORT=587
-EMAIL_SERVER_USER="your-email@example.com"
-EMAIL_SERVER_PASSWORD="your-password"
-EMAIL_FROM="noreply@example.com"
-
-# OpenAI
-OPENAI_API_KEY="sk-..."
+# App Config
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
 ```
 
-4. **Set up the database**
+**Generate Encryption Key:**
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+### 3. Database Setup
 
 ```bash
-# Generate Prisma Client
-npm run db:generate
-
-# Push schema to database
-npm run db:push
-
-# Or run migrations
-npm run db:migrate
+npx prisma generate
+npx prisma db push
 ```
 
-5. **Run the development server**
+### 4. Run Development Server
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000)
 
-## Shopify Setup
+## 🏗️ Architecture
 
-### Creating a Shopify Custom App
+### Tech Stack
 
-1. **Go to your Shopify Admin** → Settings → Apps and sales channels
-2. **Click "Develop apps"** → "Create an app"
-3. **Configure Admin API scopes**:
-   - `read_products`
-   - `write_products`
-   - `read_product_listings`
-   - `write_metafields`
-   - `read_orders` (for order attribution)
-4. **Install the app** to your store
-5. **Copy the Admin API access token**
+- **Frontend**: Next.js 14 (App Router), TypeScript, Tailwind CSS, shadcn/ui
+- **Backend**: Next.js API Routes, tRPC
+- **Database**: PostgreSQL with Prisma ORM
+- **Auth**: NextAuth.js with email magic links
+- **Security**: AES-256-GCM encryption, Upstash rate limiting, Sentry monitoring
+- **Integrations**: Shopify OAuth, OpenAI Commerce API, Stripe
 
-### Connecting Your Store
+### Security Architecture
 
-1. Create a workspace in the app
-2. Click "Connect Shopify"
-3. Enter:
-   - **Shop Domain**: `your-store.myshopify.com`
-   - **Access Token**: Your Admin API access token
+**MVP Security Mitigations** (see `MVP-MERGE-STRATEGY.md` for details):
 
-## How It Works
+1. **Encryption**: AES-256-GCM with authenticated encryption (prevents tampering)
+2. **Rate Limiting**:
+   - Feed submissions: 10/hour per workspace
+   - Product toggles: 1000/hour per workspace
+   - Auth attempts: 5/15min per IP
+3. **Monitoring**: Sentry with PII scrubbing and API key usage logging
+4. **Health Checks**: `/api/health` endpoint for uptime monitoring
 
-### 1. Product Sync
-
-```typescript
-// Run product sync
-await trpc.product.sync.mutate({ workspaceId });
-```
-
-This fetches all products from Shopify and stores them locally with a content hash for change detection.
-
-### 2. Audit Run
-
-```typescript
-// Run an audit
-await trpc.audit.run.mutate({ workspaceId });
-```
-
-The audit process:
-- Runs rule-based checks (missing images, low inventory, etc.)
-- Calls LLM to generate AI suggestions for each product
-- Creates `Suggestion` records with risk levels
-- Calculates an SEO score (0-100)
-
-### 3. Review Suggestions
-
-```typescript
-// List pending suggestions
-const suggestions = await trpc.suggestion.list.query({
-  workspaceId,
-  status: "PENDING",
-});
-
-// Approve a suggestion
-await trpc.suggestion.approve.mutate({ id: suggestionId });
-
-// Bulk approve low-risk suggestions
-await trpc.suggestion.bulkApprove.mutate({
-  workspaceId,
-  riskLevel: "LOW",
-});
-```
-
-### 4. Apply Changes
-
-```typescript
-// Apply approved suggestions
-await trpc.suggestion.apply.mutate({
-  suggestionIds: [id1, id2, id3],
-});
-```
-
-This writes changes back to Shopify:
-- Updates product metadata (title, description, tags)
-- Writes to `agent_seo.*` metafield namespace
-- Creates change log entries
-- Marks suggestions as "APPLIED"
-
-### 5. Track Results
-
-The app tracks agentic orders via:
-- Shopify webhooks (`orders/create`)
-- Heuristics: discount codes, note attributes, tags
-- Manual CSV import
-
-## LLM Configuration
-
-### Default: OpenAI
-
-Set in `.env`:
-
-```env
-LLM_PROVIDER="openai"
-LLM_MODEL="gpt-4o-mini"
-LLM_TIMEOUT_MS=20000
-MAX_TOKENS=800
-```
-
-### Adding Anthropic (Claude)
-
-Create `src/lib/llm/anthropic-provider.ts`:
-
-```typescript
-import Anthropic from "@anthropic-ai/sdk";
-import { LLMProvider, ProductInput, LLMSuggestion } from "./types";
-
-export class AnthropicProvider implements LLMProvider {
-  async generateSuggestions(product: ProductInput): Promise<LLMSuggestion[]> {
-    // Implementation
-  }
-}
-```
-
-Update `src/lib/llm/index.ts` to include the new provider.
-
-## Audit Rules
-
-The following rule-based checks run on every product:
-
-| Issue Type | Severity | Condition |
-|------------|----------|-----------|
-| `no_image` | High | No product images |
-| `availability_zero` | High | Inventory ≤ 0 |
-| `missing_price` | High | No price set |
-| `instant_checkout_off` | Medium | IC not enabled |
-| `missing_audience` | Medium | Description < 50 chars |
-| `missing_tags` | Low | No tags |
-
-LLM suggestions augment these with smart metadata recommendations.
-
-## Risk Levels
-
-- **LOW**: Safe text/metadata additions (tags, audience, use cases)
-- **MEDIUM**: Flags and settings (Instant Checkout, primary seller)
-- **HIGH**: Price or inventory changes (requires extra caution)
-
-## Auto-Apply
-
-Enable auto-apply for low-risk suggestions in workspace settings:
-
-```typescript
-await trpc.workspace.update.mutate({
-  id: workspaceId,
-  autoApplyLowRisk: true,
-});
-```
-
-When enabled, LOW risk suggestions are automatically applied without human review.
-
-## Order Attribution
-
-### Webhook Setup
-
-Create a Shopify webhook for `orders/create`:
+### Data Flow
 
 ```
-URL: https://your-app.com/api/shopify/orders-create
-Format: JSON
-API Version: 2025-01
+Merchant → Wizard → Shopify OAuth → Product Import
+         ↓
+    Feed Generation → OpenAI Commerce API
+         ↓
+    Checkout Config → Stripe → OpenAI Registration
+         ↓
+    ChatGPT ← Product Search & Checkout
 ```
 
-### Detection Heuristics
+## 📋 Wizard Flow (7 Steps)
 
-The app detects agentic orders by checking:
-1. **Note attributes**: `source=chatgpt_agentic`
-2. **Tags**: `chatgpt`, `agentic`
-3. **Discount codes**: `AICHANNEL`, `CHATGPT`, `AGENTIC`
+### Step 0: Merchant Application
+- Link to OpenAI merchant application
+- Status tracking (not_started, pending, approved, rejected)
 
-### Manual Import
+### Step 1: Shopify Connection
+- OAuth flow with proper scopes
+- Automatic store info import (name, URL, policies)
+- Product sync in background
 
-Upload CSV with columns: `order_id, amount, currency, source_channel`
+### Step 2: Store Information
+- Review/edit seller name, URLs, return policy
+- Required for ACP compliance
 
-## API Reference
+### Step 3: Product Review
+- Enable products for search/checkout
+- Compliance validation (70+ score required)
+- Bulk toggle capabilities
+
+### Step 4: Feed Configuration
+- Enter OpenAI Merchant ID & API Key
+- Choose feed format (TSV, CSV, JSON)
+- Set auto-refresh interval (manual, daily, 15min)
+
+### Step 5: Stripe Configuration
+- Enter Stripe publishable/secret keys
+- Configure webhook secret
+- Test connection
+
+### Step 6: Checkout Registration
+- Register checkout URL with OpenAI
+- Webhook endpoint setup
+- Test end-to-end flow
+
+### Step 7: Testing & Launch
+- Run comprehensive setup tests
+- Verify all integrations
+- Mark wizard complete
+
+## 🔧 API Reference
 
 ### tRPC Routers
 
-#### `workspace`
-- `list()` - List user's workspaces
-- `getById(id)` - Get workspace details
-- `create({ name, platform, shopDomain })` - Create workspace
-- `update({ id, ...settings })` - Update settings
-- `connectShopify({ workspaceId, shopDomain, accessToken })` - Connect Shopify
-- `delete(id)` - Delete workspace
+#### `wizard`
+- `getProgress()` - Get wizard state for workspace
+- `updateStep({ step, completed, data })` - Update step progress
+- `initiateShopifyOAuth({ shop })` - Start OAuth flow
+- `completeShopifyOAuth({ shop, code, state })` - Complete OAuth & import
+- `updateStoreInfo({ ...storeInfo })` - Update seller information
+- `getProductReadiness()` - Get product compliance summary
+- `toggleProduct({ productId, enableSearch, enableCheckout })` - Toggle product
+- `runSetupTests()` - Run all validation tests
 
-#### `product`
-- `list({ workspaceId, limit, offset })` - List products
-- `getById(id)` - Get product details with audit history
-- `sync({ workspaceId })` - Sync products from Shopify (async)
+#### `feed`
+- `configureOpenAI({ merchantId, apiKey, autoRefreshInterval })` - Save OpenAI credentials
+- `generateFeed({ format })` - Generate product feed
+- `previewFeed({ format })` - Preview first 10 products
+- `submitFeed({ format })` - Submit to OpenAI Commerce API
+- `getSubmissionStatus()` - Get last submission status
+- `getConfiguration()` - Get feed configuration
 
-#### `audit`
-- `run({ workspaceId })` - Run audit (async)
-- `getHistory({ workspaceId })` - Get audit job history
+#### `checkout`
+- `configureStripe({ publishableKey, secretKey, webhookSecret, testMode })` - Configure Stripe
+- `getStripeConfig()` - Get current config (secrets masked)
+- `testStripeConnection()` - Verify Stripe credentials
+- `updateSupportedCountries({ countries })` - Set supported countries
+- `registerCheckout()` - Register with OpenAI
+- `getCheckoutConfig()` - Get checkout configuration
 
-#### `suggestion`
-- `list({ workspaceId, status?, riskLevel?, productId? })` - List suggestions
-- `approve({ id })` - Approve suggestion
-- `reject({ id })` - Reject suggestion
-- `bulkApprove({ workspaceId, riskLevel? })` - Bulk approve
-- `apply({ suggestionIds })` - Apply approved suggestions to Shopify
+### ACP REST Endpoints
 
-#### `analytics`
-- `dashboard({ workspaceId })` - Get dashboard metrics
-- `ordersOverTime({ workspaceId, days? })` - Get order history
+```
+POST   /api/checkout/sessions           - Create checkout session
+GET    /api/checkout/sessions/:id       - Retrieve session
+POST   /api/checkout/sessions/:id       - Update session
+POST   /api/checkout/sessions/:id/complete - Complete with payment
+POST   /api/checkout/sessions/:id/cancel   - Cancel session
+```
 
-#### `job`
-- `getStatus({ jobId })` - Poll job status
-- `list({ workspaceId })` - List recent jobs
+### Health & Monitoring
 
-## Database Schema
+```
+GET    /api/health                      - Health check endpoint
+```
 
-See `prisma/schema.prisma` for full schema. Key tables:
+Returns:
+- Database connectivity & latency
+- Redis status
+- Environment variable validation
+- Process uptime
 
-- **User** - User accounts with roles
-- **Workspace** - Store/client workspaces
-- **Product** - Synced product catalog
-- **AuditResult** - Audit scores and issues
-- **Suggestion** - HITL suggestion queue
-- **OrderEvent** - Order attribution data
-- **ChangeLog** - Full modification history
-- **Job** - Async job queue
+## 🔐 Security Best Practices
 
-## Deployment
+### API Key Management
+
+**Never log API keys:**
+```typescript
+import { logApiKeyUsage } from '@/lib/security/monitoring';
+
+// ✅ Good: Log usage, not the key
+await logApiKeyUsage(workspaceId, 'openai', 'feed_submission');
+
+// ❌ Bad: Don't log the actual key
+console.log('Using API key:', apiKey);
+```
+
+**Always encrypt before storing:**
+```typescript
+import { encryptApiKey, decryptApiKey } from '@/lib/security/apiKeyManager';
+
+// Storing
+const encrypted = encryptApiKey(plainApiKey);
+await db.workspace.update({ data: { openaiApiKey: encrypted } });
+
+// Retrieving
+const apiKey = decryptApiKey(workspace.openaiApiKey);
+```
+
+### Rate Limiting
+
+```typescript
+import { checkRateLimit, feedRateLimiter } from '@/lib/security/rateLimiter';
+
+// Before expensive operations
+await checkRateLimit(feedRateLimiter, workspaceId);
+```
+
+### Key Rotation
+
+```bash
+# Generate new encryption key
+NEW_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+
+# Run rotation script
+npx tsx scripts/rotate-encryption-keys.ts --old-key $OLD_KEY --new-key $NEW_KEY
+```
+
+## 📊 Monitoring & Debugging
+
+### Health Checks
+
+```bash
+curl http://localhost:3000/api/health
+```
+
+### Sentry Error Tracking
+
+Errors are automatically captured with:
+- PII scrubbing (API keys, emails, etc.)
+- Workspace context
+- Request metadata
+
+### Rate Limit Status
+
+Check Redis directly:
+```bash
+# In Upstash console, check keys:
+feed:workspace_123      # Feed submission count
+toggle:workspace_123    # Product toggle count
+auth:192.168.1.1       # Auth attempt count (by IP)
+```
+
+## 🚢 Deployment
 
 ### Vercel (Recommended)
 
-1. Push code to GitHub
-2. Import project in Vercel
-3. Set environment variables
-4. Deploy
+1. **Push to GitHub**
+2. **Import to Vercel**
+3. **Set Environment Variables** (all required vars from `.env.example`)
+4. **Deploy**
 
-### Railway
+### Environment Variable Checklist
 
-1. Create new project from GitHub repo
-2. Add PostgreSQL service
-3. Set environment variables
-4. Deploy
+Before deploying, verify all required variables are set:
 
-### Database Hosting
+- [ ] `DATABASE_URL` - PostgreSQL connection
+- [ ] `ENCRYPTION_KEY` - 64 hex characters
+- [ ] `UPSTASH_REDIS_REST_URL` - Rate limiting
+- [ ] `UPSTASH_REDIS_REST_TOKEN` - Rate limiting
+- [ ] `SHOPIFY_CLIENT_ID` - OAuth
+- [ ] `SHOPIFY_CLIENT_SECRET` - OAuth
+- [ ] `SHOPIFY_REDIRECT_URI` - OAuth callback
+- [ ] `NEXTAUTH_SECRET` - Auth sessions
+- [ ] `NEXTAUTH_URL` - Production URL
+- [ ] `NEXT_PUBLIC_APP_URL` - Production URL
+- [ ] `SENTRY_DSN` - (Optional) Error monitoring
 
-- **Vercel Postgres** (easiest with Vercel)
-- **Railway Postgres**
-- **Supabase**
-- **PlanetScale**
-
-## Development
+### Database Migrations
 
 ```bash
-# Run dev server
-npm run dev
-
-# Run Prisma Studio
-npm run db:studio
-
-# Generate Prisma Client
-npm run db:generate
-
-# Create migration
-npm run db:migrate
-
-# Lint
-npm run lint
-
-# Build
-npm run build
-
-# Start production server
-npm start
+# Production migration
+npx prisma migrate deploy
 ```
 
-## Roadmap
+### Health Check Setup
 
-- [ ] Complete frontend for Suggestions Queue
-- [ ] Product detail page with change history
-- [ ] Analytics charts (Recharts integration)
-- [ ] CSV export functionality
-- [ ] Etsy integration
-- [ ] Anthropic/Claude LLM provider
-- [ ] BullMQ/Redis job queue
-- [ ] Shopify OAuth (public app)
-- [ ] Webhook verification (HMAC)
-- [ ] Multi-workspace dashboard
-- [ ] Batch operations UI
+Configure your monitoring service (Pingdom, UptimeRobot, etc.):
+- **URL**: `https://your-domain.com/api/health`
+- **Method**: GET
+- **Expected Status**: 200
+- **Check Interval**: 1 minute
 
-## Architecture Decisions
+## 📁 Project Structure
 
-### Why tRPC?
-Type-safe API with zero codegen, perfect for monorepo Next.js setup.
+```
+src/
+├── app/                          # Next.js 14 App Router
+│   ├── api/
+│   │   ├── checkout/            # ACP checkout endpoints
+│   │   ├── health/              # Health check
+│   │   └── webhooks/            # OpenAI & Shopify webhooks
+│   └── (dashboard)/             # Protected dashboard routes
+├── lib/
+│   ├── security/                # 🔐 Security utilities (MVP)
+│   │   ├── apiKeyManager.ts     # AES-256-GCM encryption
+│   │   ├── rateLimiter.ts       # Upstash Redis rate limiting
+│   │   └── monitoring.ts        # Sentry + audit logging
+│   ├── shopify/                 # Shopify OAuth & API client
+│   └── services/                # Business logic
+│       ├── shopifyImport.ts     # Product import
+│       └── feedGeneration.ts    # Feed generation & submission
+├── server/
+│   ├── routers/                 # tRPC routers
+│   │   ├── wizard.ts            # Wizard flow endpoints
+│   │   ├── feed.ts              # Feed management
+│   │   └── checkout.ts          # Checkout configuration
+│   └── db.ts                    # Prisma client
+└── components/                   # React components
 
-### Why DB-backed jobs?
-Simple to start, easy to upgrade to BullMQ/Redis later.
+v2/                              # 🚀 FUTURE: Optimization features
+└── (deferred to fast follow)
+```
 
-### Why metafields?
-Non-destructive metadata storage in dedicated `agent_seo.*` namespace.
+## 🛣️ Roadmap
 
-### Why content hash?
-Skip expensive LLM calls when product hasn't changed.
+### ✅ MVP (Current - v1.0)
+- [x] Unified wizard backend (7 steps)
+- [x] Shopify OAuth integration
+- [x] Product feed generation & submission
+- [x] Stripe checkout configuration
+- [x] ACP REST endpoints
+- [x] Security mitigations (encryption, rate limiting, monitoring)
+- [x] Health check endpoint
+- [ ] Frontend wizard UI (in progress)
 
-## Contributing
+### 🔜 v2 (Fast Follow)
+- [ ] Product optimization scoring (8-category system)
+- [ ] AI-powered metadata suggestions
+- [ ] Compliance audit (25 field checks)
+- [ ] Products dashboard with filters
+- [ ] Order attribution tracking
+- [ ] Analytics dashboard
+
+### 📈 v3 (Future)
+- [ ] Multi-platform support (Etsy, WooCommerce)
+- [ ] Advanced analytics & A/B testing
+- [ ] Bulk operations & CSV export
+- [ ] Team collaboration features
+- [ ] White-label capabilities
+
+## 📚 Documentation
+
+- **MVP Implementation Guide**: `MVP-MERGE-STRATEGY.md`
+- **Complete Architecture Analysis**: `docs/COMPLETE-PRODUCT-COHESION-ANALYSIS.md`
+- **Executive Summary**: `docs/EXECUTIVE-SUMMARY.md`
+
+## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-## License
+## 📄 License
 
 MIT
 
-## Support
+## 💬 Support
 
-For issues and questions, please open a GitHub issue.
+- **Issues**: [GitHub Issues](https://github.com/jmason33333-ux/Agentic-Commerce-Optimization/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/jmason33333-ux/Agentic-Commerce-Optimization/discussions)
 
 ---
 
-Built with ❤️ for the future of AI-powered commerce
+**Built for the future of AI-powered commerce** 🚀
