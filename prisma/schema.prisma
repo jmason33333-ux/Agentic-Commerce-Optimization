@@ -60,6 +60,8 @@ model Workspace {
   jobs          Job[]
   feedSubmissions FeedSubmission[]
   checkoutConfig  CheckoutConfig?
+  checkoutSessions CheckoutSession[]
+  orders        Order[]
 
   @@index([ownerId])
   @@index([shopDomain])
@@ -501,5 +503,115 @@ model CheckoutConfig {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  checkoutSessions CheckoutSession[]
+
   @@map("checkout_configs")
+}
+
+// Checkout Session Tracking
+model CheckoutSession {
+  id String @id @default(cuid())
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  checkoutConfigId String?
+  checkoutConfig   CheckoutConfig? @relation(fields: [checkoutConfigId], references: [id])
+
+  // Stripe session details
+  stripeSessionId  String  @unique
+  status           CheckoutSessionStatus @default(PENDING)
+
+  // Customer info
+  customerEmail    String
+  shippingAddress  Json?
+
+  // Cart data
+  cartData         Json    // Array of cart items
+
+  // Payment
+  totalAmount      Decimal @db.Decimal(10, 2)
+  currency         String
+  paymentIntentId  String?
+
+  // Timestamps
+  createdAt        DateTime @default(now())
+  completedAt      DateTime?
+  expiresAt        DateTime
+
+  // Metadata
+  metadata         Json?
+
+  // Relations
+  order            Order?
+
+  @@index([workspaceId])
+  @@index([status])
+  @@index([customerEmail])
+  @@map("checkout_sessions")
+}
+
+enum CheckoutSessionStatus {
+  PENDING
+  COMPLETED
+  EXPIRED
+  CANCELLED
+}
+
+// Order Management
+model Order {
+  id String @id @default(cuid())
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  checkoutSessionId String          @unique
+  checkoutSession   CheckoutSession @relation(fields: [checkoutSessionId], references: [id])
+
+  // Order details
+  orderNumber      String?  @unique // Generated order number
+  customerEmail    String
+  totalAmount      Decimal  @db.Decimal(10, 2)
+  currency         String
+
+  // Status
+  status           OrderStatus @default(PENDING_FULFILLMENT)
+
+  // Source tracking
+  source           String   @default("chatgpt_agentic") // chatgpt_agentic, web, pos, etc.
+
+  // Shipping
+  shippingAddress  Json?
+  trackingNumber   String?
+  shippedAt        DateTime?
+  deliveredAt      DateTime?
+
+  // Fulfillment (Shopify)
+  shopifyOrderId   String?
+  shopifyFulfillmentId String?
+
+  // Timestamps
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Metadata
+  metadata         Json?
+  notes            String?  @db.Text
+
+  @@index([workspaceId])
+  @@index([status])
+  @@index([source])
+  @@index([customerEmail])
+  @@map("orders")
+}
+
+enum OrderStatus {
+  PENDING_FULFILLMENT
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+  PAYMENT_FAILED
 }
